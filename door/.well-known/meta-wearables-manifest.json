@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "name": "Utility Camera",
-  "description": "Live Blue Iris utility camera",
+  "name": "Front Door",
+  "description": "Live Blue Iris camera",
   "appearance": {
     "theme_color": "#5AD1FF",
     "icon": {
