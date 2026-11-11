@@ -56,11 +56,11 @@
   <div id="rnav"><button id="up">▲ Up</button><button id="down">▼ Down</button></div>
 </div>
 <div id="info" class="note" hidden></div>
-<script src="../shared.js"></script>
+<script src="../shared.js?v=2"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var ha = null, mailbox = "info", lists = {}, refreshTimer = null, lastFocus = null;
+  var mailbox = "info", lists = {}, refreshTimer = null, lastFocus = null;
   try { mailbox = localStorage.getItem("pm_mailbox") || "info"; } catch (e) {}
   function status(t, err){ $("status").textContent = t; $("status").className = err ? "err" : ""; }
   function info(h){ $("info").hidden = !h; $("info").innerHTML = h || ""; }
@@ -73,9 +73,14 @@
     return d.toLocaleDateString([], { day:"numeric", month:"short" });
   }
   function call(service, data){
-    return ha.send({ type:"call_service", domain:"pyscript", service:service, service_data:data || {}, return_response:true })
-      .then(function (r) { var resp = r && r.response; if (!resp) throw new Error("no response"); if (resp.error) throw new Error(resp.error); return resp; });
+    return GlassesHA.service("pyscript", service, data || {}, true)
+      .then(function (resp) { if (!resp) throw new Error("no response"); if (resp.error) throw new Error(resp.error); return resp; });
   }
+  var H = {
+    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/mail/?token=YOUR_TOKEN</b>"); },
+    badToken: function(){ status("Token rejected", true); info("Home Assistant rejected the access token. Re-add the app with a valid token on the link."); }
+  };
+  function failed(e){ var t = GlassesHA.describe(e, H); if (t) { status(t, true); if (t !== "Offline") info(esc(e.message)); } return t; }
 
   function showList(){
     $("reader").hidden = true; $("listView").hidden = false; $("listMain").hidden = false; $("title").textContent = "Mail";
@@ -107,10 +112,10 @@
       lists[mb] = r.messages; info(""); status("Ready");
       if (mb === mailbox && !$("listView").hidden) { var keep = document.activeElement && document.activeElement.dataset.id; renderList();
         var f = keep && document.querySelector('[data-id="' + keep + '"]'); if (f) f.focus(); }
-    }).catch(function(e){ status("Error", true); info(esc(e.message)); });
+    }).catch(function(e){ return failed(e); });
   }
-  function refresh(){ clearTimeout(refreshTimer); if (document.hidden || !ha) return;
-    Promise.all([loadSummary(), loadList()]).then(function(){ refreshTimer = setTimeout(refresh, 60000); }); }
+  function refresh(){ clearTimeout(refreshTimer); if (document.hidden) return;
+    Promise.all([loadSummary(), loadList()]).then(function(r){ if (r[1] !== null) refreshTimer = setTimeout(refresh, r[1] === "Offline" ? 8000 : 60000); }); }
 
   function openMsg(id){
     lastFocus = id;
@@ -123,7 +128,7 @@
       $("rmeta").textContent = (m.from.name || m.from.address) + " · " + new Date(m.received).toLocaleString([], { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) + (m.attachments ? " · 📎 attachments" : "");
       $("rbody").textContent = (m.body || "").replace(/\n{3,}/g, "\n\n").trim();
       $("rbody").scrollTop = 0;
-    }).catch(function(e){ $("rsubj").textContent = "Couldn't open message"; $("rbody").textContent = e.message; });
+    }).catch(function(e){ $("rsubj").textContent = "Couldn't open message"; $("rbody").textContent = e.code === "offline" ? "No connection – go back and try again." : e.message; });
   }
   function page(dir){ var b = $("rbody"); b.scrollBy({ top: dir * (b.clientHeight - 40), behavior:"smooth" }); }
   $("up").addEventListener("click", function(){ page(-1); });
@@ -138,13 +143,9 @@
     });
   });
 
-  function ready(api){ ha = api; showList(); refresh(); }
-  ha = GlassesHA.connect({
-    status: status, ready: ready,
-    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/mail/#token=YOUR_TOKEN</b>"); },
-    badToken: function(){ status("Token rejected", true); info("Home Assistant rejected the access token. Re-add the app with a valid token."); }
-  });
-  document.addEventListener("visibilitychange", function(){ if (!document.hidden && ha) { ha.reopen(); refresh(); } });
+  if (!GlassesHA.token) H.noToken(); else { showList(); refresh(); }
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden) refresh(); });
+  window.addEventListener("online", refresh);
 })();
 </script>
 </body>
