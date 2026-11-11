@@ -104,8 +104,19 @@
   };
   window.GlassesHA = api;
   // any app other than TV: switch off a TV channel that may still be streaming in the background
+  // Also tell a TV app still running on the glasses to stop, directly (no network needed): a TV app left
+  // streaming in the background uses up the glasses' connection so nothing else gets through.
+  function tvOffLocal() {
+    try { new BroadcastChannel("glasses").postMessage({ type: "tv-off" }); } catch (e) {}
+    try { localStorage.setItem("glasses_tv_off", String(Date.now())); } catch (e) {}
+  }
+  api.onTvOff = function (cb) {
+    try { new BroadcastChannel("glasses").onmessage = function (ev) { if (ev.data && ev.data.type === "tv-off") cb(); }; } catch (e) {}
+    window.addEventListener("storage", function (ev) { if (ev.key === "glasses_tv_off") cb(); });
+  };
   if (!/\/tv\//.test(location.pathname)) {
-    api.tvOff();
-    document.addEventListener("visibilitychange", function () { if (!document.hidden) api.tvOff(); });
+    tvOffLocal(); api.tvOff();
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) { tvOffLocal(); api.tvOff(); } });
+    window.addEventListener("focus", tvOffLocal);
   }
 })();
