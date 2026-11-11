@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Live Blue Iris front door camera">
+<meta name="mrbd-web-app-capable" content="yes">
+<meta name="application-name" content="Front Door">
+<meta name="theme-color" content="#000000">
+<title>Front Door</title>
+<link rel="icon" type="image/png" sizes="192x192" href="../icons/camera-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/camera-apple-180.png">
+<style>
+  [hidden]{display:none!important}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000;color:#fff;font-family:system-ui,-apple-system,Roboto,sans-serif;height:100%;overflow:hidden}
+  body{display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:baseline;padding:12px 16px 8px}
+  h1{font-size:24px;font-weight:600}
+  #status{font-size:18px;color:#8a8a8a} #status.live{color:#ff5a5a} #status.err{color:#ff6b6b}
+  #view{flex:1;display:flex;align-items:center;justify-content:center;width:100%;border:3px solid transparent;border-radius:14px;background:none;padding:0;position:relative;min-height:0}
+  #view:focus{outline:none;border-color:#5ad1ff}
+  #cam{max-width:100%;max-height:100%;object-fit:contain;border-radius:10px;display:block}
+  #paused{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:20px;text-shadow:0 0 6px #000}
+  .msg{font-size:22px;color:#8a8a8a;line-height:1.35;padding:8px 16px}
+</style>
+</head>
+<body>
+<header><h1>Front door</h1><span id="status">Connecting…</span></header>
+<button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
+<div id="info" class="msg" hidden></div>
+<script src="../shared.js"></script>
+<script>
+(function () {
+  var CAMERA = "camera.ades_security_front_door";
+  var $view = document.getElementById("view"), $cam = document.getElementById("cam"), $status = document.getElementById("status"),
+      $info = document.getElementById("info"), $paused = document.getElementById("paused");
+  var ha = null, camToken = null, paused = false, mode = "stream", timer = null, shown = null;
+  function status(t, cls){ $status.textContent = t; $status.className = cls === true ? "err" : (cls || ""); }
+  function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
+  var base = GlassesHA.HA_URL;
+
+  function show(){
+    clearTimeout(timer);
+    if (paused || !camToken || document.hidden) return;
+    if (mode === "stream") {
+      var url = base + "/api/camera_proxy_stream/" + CAMERA + "?token=" + encodeURIComponent(camToken);
+      if (shown === url) return;
+      shown = url;
+      $cam.onload = function(){ status("● Live", "live"); };
+      $cam.onerror = function(){ mode = "snapshot"; shown = null; show(); };
+      $cam.src = url;
+    } else {
+      // fallback: a fresh still every second
+      var next = new Image();
+      next.onload = function(){ $cam.src = next.src; status("● Live", "live"); timer = setTimeout(show, 1000); };
+      next.onerror = function(){ status("Reconnecting…", true); timer = setTimeout(show, 3000); };
+      next.src = base + "/api/camera_proxy/" + CAMERA + "?token=" + encodeURIComponent(camToken) + "&t=" + Date.now();
+    }
+  }
+  function stop(){ clearTimeout(timer); $cam.onerror = null; $cam.removeAttribute("src"); shown = null; }
+
+  $view.addEventListener("click", function(){
+    if (paused) { paused = false; $paused.hidden = true; show(); }
+    else { paused = true; stop(); $paused.hidden = false; status("Paused"); }
+  });
+  document.addEventListener("visibilitychange", function(){
+    if (document.hidden) stop(); else { if (ha) ha.reopen(); show(); }
+  });
+
+  function ready(api){
+    info(""); $view.hidden = false; $view.focus();
+    // the camera's access token rotates every few minutes; the subscription keeps it current
+    api.subscribe({ type:"subscribe_entities", entity_ids:[CAMERA] }, function(ev){
+      var s = (ev.a && ev.a[CAMERA]) || null, c = ev.c && ev.c[CAMERA] && ev.c[CAMERA]["+"];
+      var t = (s && s.a && s.a.access_token) || (c && c.a && c.a.access_token);
+      if (t && t !== camToken) { camToken = t; if (mode === "stream") shown = null; show(); }
+      if (s && s.s === "unavailable") status("Camera offline", true);
+    }).catch(function(){ status("Error", true); });
+  }
+
+  ha = GlassesHA.connect({
+    status: status, ready: ready,
+    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/door/#token=YOUR_TOKEN</b><br>Re-add it in the Meta AI app with the token included."); },
+    badToken: function(){ status("Token rejected", true); $view.hidden = true; info("Home Assistant rejected the access token. Create a new long-lived token and re-add the app with it on the link."); }
+  });
+})();
+</script>
+</body>
+</html>
