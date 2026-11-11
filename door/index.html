@@ -29,61 +29,66 @@
 <header><h1>Front door</h1><span id="status">Connecting…</span></header>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
 <div id="info" class="msg" hidden></div>
-<script src="../shared.js"></script>
+<script src="../shared.js?v=2"></script>
 <script>
 (function () {
   var CAMERA = "camera.ades_security_utility";
   var $view = document.getElementById("view"), $cam = document.getElementById("cam"), $status = document.getElementById("status"),
       $info = document.getElementById("info"), $paused = document.getElementById("paused");
-  var ha = null, camToken = null, paused = false, mode = "stream", timer = null, shown = null;
+  var ha = GlassesHA, camToken = null, paused = false, mode = "stream", timer = null, tokTimer = null, shown = null;
   function status(t, cls){ $status.textContent = t; $status.className = cls === true ? "err" : (cls || ""); }
   function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
-  var base = GlassesHA.HA_URL;
+  var base = ha.HA_URL;
+  var H = {
+    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/door/?token=YOUR_TOKEN</b>"); },
+    badToken: function(){ status("Token rejected", true); $view.hidden = true; info("Home Assistant rejected the access token. Re-add the app with a valid token on the link."); }
+  };
+
+  // The camera's own access token rotates every few minutes; fetch it with an ordinary request.
+  function refreshToken(){
+    clearTimeout(tokTimer);
+    return ha.state(CAMERA).then(function(s){
+      if (s.state === "unavailable") status("Camera offline", true);
+      var t = s.attributes && s.attributes.access_token;
+      if (t) camToken = t;
+      $view.hidden = false; info("");
+      tokTimer = setTimeout(refreshToken, 60000);
+      return t;
+    }).catch(function(e){
+      var t = ha.describe(e, H); if (t === null) return;
+      status(t, true); tokTimer = setTimeout(function(){ refreshToken().then(show); }, 4000);
+      throw e;
+    });
+  }
 
   function show(){
     clearTimeout(timer);
     if (paused || !camToken || document.hidden) return;
     if (mode === "stream") {
       var url = base + "/api/camera_proxy_stream/" + CAMERA + "?token=" + encodeURIComponent(camToken);
-      if (shown === url) return;
+      if (shown) return;   // keep the running stream; a new token only matters when it has to reconnect
       shown = url;
       $cam.onload = function(){ status("● Live", "live"); };
-      $cam.onerror = function(){ mode = "snapshot"; shown = null; show(); };
+      $cam.onerror = function(){ shown = null; mode = "snapshot"; show(); };
       $cam.src = url;
     } else {
       // fallback: a fresh still every second
       var next = new Image();
       next.onload = function(){ $cam.src = next.src; status("● Live", "live"); timer = setTimeout(show, 1000); };
-      next.onerror = function(){ status("Reconnecting…", true); timer = setTimeout(show, 3000); };
+      next.onerror = function(){ status("Reconnecting…", true); timer = setTimeout(function(){ refreshToken().then(show, function(){}); }, 3000); };
       next.src = base + "/api/camera_proxy/" + CAMERA + "?token=" + encodeURIComponent(camToken) + "&t=" + Date.now();
     }
   }
-  function stop(){ clearTimeout(timer); $cam.onerror = null; $cam.removeAttribute("src"); shown = null; }
+  function stop(){ clearTimeout(timer); $cam.onerror = null; $cam.onload = null; $cam.removeAttribute("src"); shown = null; }
+  function start(){ stop(); mode = "stream"; status("Connecting…"); refreshToken().then(function(){ $view.focus(); show(); }, function(){}); }
 
   $view.addEventListener("click", function(){
-    if (paused) { paused = false; $paused.hidden = true; show(); }
+    if (paused) { paused = false; $paused.hidden = true; start(); }
     else { paused = true; stop(); $paused.hidden = false; status("Paused"); }
   });
-  document.addEventListener("visibilitychange", function(){
-    if (document.hidden) stop(); else { if (ha) ha.reopen(); show(); }
-  });
-
-  function ready(api){
-    info(""); $view.hidden = false; $view.focus();
-    // the camera's access token rotates every few minutes; the subscription keeps it current
-    api.subscribe({ type:"subscribe_entities", entity_ids:[CAMERA] }, function(ev){
-      var s = (ev.a && ev.a[CAMERA]) || null, c = ev.c && ev.c[CAMERA] && ev.c[CAMERA]["+"];
-      var t = (s && s.a && s.a.access_token) || (c && c.a && c.a.access_token);
-      if (t && t !== camToken) { camToken = t; if (mode === "stream") shown = null; show(); }
-      if (s && s.s === "unavailable") status("Camera offline", true);
-    }).catch(function(){ status("Error", true); });
-  }
-
-  ha = GlassesHA.connect({
-    status: status, ready: ready,
-    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/door/#token=YOUR_TOKEN</b><br>Re-add it in the Meta AI app with the token included."); },
-    badToken: function(){ status("Token rejected", true); $view.hidden = true; info("Home Assistant rejected the access token. Create a new long-lived token and re-add the app with it on the link."); }
-  });
+  document.addEventListener("visibilitychange", function(){ if (document.hidden) { stop(); clearTimeout(tokTimer); } else if (!paused) start(); });
+  window.addEventListener("online", function(){ if (!paused && !document.hidden) start(); });
+  start();
 })();
 </script>
 </body>
