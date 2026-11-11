@@ -48,8 +48,11 @@
     "switch.hallway_lamp": "Hallway",
     "switch.media_wall": "Living Room",
     "input_boolean.fire": "Living Room",
-    "switch.blue_lamp": "Living Room"
+    "switch.blue_lamp": "Living Room",
+    "input_boolean.alexa_trigger": "Kitchen"
   };
+  // Names for the glasses only
+  var NAMES = { "input_boolean.alexa_trigger": "Coffee machine" };
   var $list = document.getElementById("list"), $status = document.getElementById("status"), $info = document.getElementById("info"),
       $back = document.getElementById("back"), $title = document.getElementById("title");
   var ha = GlassesHA, ents = [], states = {}, names = {}, rooms = {}, timer = null, busyUntil = {}, room = null, shown = "";
@@ -122,7 +125,7 @@
     ha.entities(LABEL).then(function(list){
       ents = list.map(function(e){ return e.entity_id; });
       rooms = {};
-      list.forEach(function(e){ var prev = states[e.entity_id]; states[e.entity_id] = e.state; names[e.entity_id] = clean(e.name);
+      list.forEach(function(e){ var prev = states[e.entity_id]; states[e.entity_id] = e.state; names[e.entity_id] = NAMES[e.entity_id] || clean(e.name);
         var r = ROOMS[e.entity_id] || e.area || OTHER; (rooms[r] = rooms[r] || []).push(e.entity_id);
         if (prev !== undefined && prev !== e.state) busyUntil[e.entity_id] = 0; });
       if (room && !rooms[room]) room = null;
