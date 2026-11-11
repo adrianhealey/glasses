@@ -39,65 +39,25 @@
   <div id="controls"><button id="voldown">🔉 −</button><button id="volup">🔊 +</button><button id="mute">Mute</button><button id="list">Channels</button></div>
 </div>
 <div id="info" class="note" hidden></div>
-<script src="../shared.js"></script>
+<script src="../shared.js?v=2"></script>
 <script>
 (function () {
   var LABEL = "glasses_tv";     // HA label id: cameras carrying the "Glasses TV" label are listed as channels
   var HLSJS = "https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js";
   var $ = function (id) { return document.getElementById(id); };
-  var ha = null, chans = [], names = {}, current = null, hls = null, vol = 0.8;
+  var ha = GlassesHA, chans = [], names = {}, current = null, hls = null, vol = 0.8;
   try { vol = parseFloat(localStorage.getItem("tv_vol") || "0.8"); } catch (e) {}
   function status(t, cls){
     var v = $("video");
-    if (t === "Offline" && v && !v.paused && v.readyState >= 3) { t = "● Live"; cls = "live"; }  // video keeps flowing even if the HA control link blips
     $("status").textContent = t; $("status").className = cls === true ? "err" : (cls || "");
   }
   function info(h){ $("info").hidden = !h; $("info").innerHTML = h || ""; }
+  function clean(n){ n = String(n).trim(); var w = n.split(/ +/), h = w.length / 2;   // "Sky Sports F1 Sky Sports F1" -> "Sky Sports F1"
+    if (w.length % 2 === 0 && w.slice(0,h).join(" ") === w.slice(h).join(" ")) n = w.slice(0,h).join(" ");
+    return n; }
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 
-  var pc = null, rtcSub = null;
-  function stopRtc(){
-    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-    if (rtcSub !== null && ha) { ha.unsubscribe(rtcSub); rtcSub = null; }
-  }
-  // WebRTC through HA's built-in go2rtc: signalling over the websocket, so no CORS is involved.
-  function playWebRTC(id, v){
-    return ha.send({ type:"camera/webrtc/get_client_config", entity_id:id }).then(function(cfg){
-      return new Promise(function(resolve, reject){
-        var sessionId = null, pending = [], done = false;
-        var fail = function(msg){ if (!done) { done = true; stopRtc(); reject(new Error(msg)); } };
-        pc = new RTCPeerConnection(cfg.configuration || {});
-        pc.addTransceiver("video", { direction:"recvonly" });
-        pc.addTransceiver("audio", { direction:"recvonly" });
-        if (cfg.dataChannel) pc.createDataChannel(cfg.dataChannel);
-        var ms = new MediaStream();
-        pc.ontrack = function(ev){ ms.addTrack(ev.track); if (v.srcObject !== ms) v.srcObject = ms; };
-        pc.onconnectionstatechange = function(){ if (pc && (pc.connectionState === "failed")) fail("connection failed"); };
-        pc.onicecandidate = function(ev){
-          if (!ev.candidate) return;
-          var c = ev.candidate.toJSON();
-          if (sessionId) ha.send({ type:"camera/webrtc/candidate", entity_id:id, session_id:sessionId, candidate:c }).catch(function(){});
-          else pending.push(c);
-        };
-        v.onplaying = function(){ status("● Live", "live"); if (!done) { done = true; resolve(); } };
-        pc.createOffer().then(function(offer){ return pc.setLocalDescription(offer).then(function(){ return offer; }); }).then(function(offer){
-          var p = ha.subscribe({ type:"camera/webrtc/offer", entity_id:id, offer:offer.sdp }, function(ev){
-            if (ev.type === "session") { sessionId = ev.session_id;
-              pending.forEach(function(c){ ha.send({ type:"camera/webrtc/candidate", entity_id:id, session_id:sessionId, candidate:c }).catch(function(){}); }); pending = []; }
-            else if (ev.type === "answer") { pc.setRemoteDescription({ type:"answer", sdp:ev.answer }).then(function(){ startPlay(v); }).catch(function(e){ fail(e.message); }); }
-            else if (ev.type === "candidate" && ev.candidate) { pc.addIceCandidate(ev.candidate).catch(function(){}); }
-            else if (ev.type === "error") { fail(ev.message || ev.code || "webrtc error"); }
-          });
-          rtcSub = p.subId;
-          p.catch(function(e){ fail(e && (e.message || e.code) || "offer rejected"); });
-        }).catch(function(e){ fail(e.message); });
-        setTimeout(function(){ fail("timed out"); }, 15000);
-      });
-    });
-  }
-
   function stop(){
-    stopRtc();
     if (hls) { hls.destroy(); hls = null; }
     var v = $("video"); v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load();
   }
@@ -134,9 +94,10 @@
     playHls(id);
   }
   function playHls(id){
-    ha.send({ type:"camera/stream", entity_id:id, format:"hls" }).then(function(r){
-      // /api/glasses_hls/ is the CORS-enabled proxy of HA's /api/hls/ (custom_components/glasses_hls)
-      var url = GlassesHA.HA_URL + r.url.replace("/api/hls/", "/api/glasses_hls/"), v = $("video");
+    ha.stream(id).then(function(url){
+      // url is HA's /api/glasses_hls/ proxy of /api/hls/ (custom_components/glasses_hls), which allows cross-site playback
+      if (current !== id) return;
+      var v = $("video");
       v.volume = vol;
       v.onplaying = function(){ status("● Live", "live"); };
       v.onwaiting = function(){ status("Buffering…"); };
@@ -169,7 +130,11 @@
         return startPlay(v);
       }
       return viaHlsJs();
-    }).catch(function(e){ status("Error", true); info("Couldn't start " + esc(names[id] || id) + ": " + esc(e && (e.message || e.code) || e)); });
+    }).catch(function(e){
+      var t = ha.describe(e, H); if (t === null) return;
+      if (t === "Offline") { status("Offline", true); setTimeout(function(){ if (current === id && !document.hidden) playHls(id); }, 4000); return; }
+      status("Error", true); info("Couldn't start " + esc(names[id] || id) + ": " + esc(e && (e.message || e.code) || e));
+    });
   }
 
   $("screen").addEventListener("click", function(){
@@ -183,32 +148,26 @@
   $("mute").addEventListener("click", function(){ var v = $("video"); v.muted = !v.muted; $("mute").textContent = v.muted ? "Unmute" : "Mute"; if (!v.muted) info(""); });
   $("list").addEventListener("click", function(){ if (chans.length) showList(); });
   document.addEventListener("visibilitychange", function(){
-    if (document.hidden) stop(); else if (ha) { ha.reopen(); if (current) play(current); }
+    if (document.hidden) stop(); else if (current) play(current); else if (!chans.length) load();
   });
 
-  function ready(api){
-    ha = api;
-    api.send({ type:"config/entity_registry/list_for_display" }).then(function(reg){
-      chans = reg.entities.filter(function(e){ return e.ei.indexOf("camera.") === 0 && (e.lb || []).indexOf(LABEL) >= 0; }).map(function(e){ return e.ei; });
-      if (!chans.length) { status("Ready"); info("No channels yet. In Home Assistant, add the <b>Glasses TV</b> label to the IPTV camera(s) you want here."); return; }
-      var started = false;
-      api.subscribe({ type:"subscribe_entities", entity_ids:chans }, function(ev){
-        if (!ev.a || started) return;
-        started = true;
-        Object.keys(ev.a).forEach(function(k){ names[k] = (ev.a[k].a && ev.a[k].a.friendly_name) || k; });
-        chans.sort(function(a, b){ return (names[a] || a).localeCompare(names[b] || b); });
-        info("");
-        var v = $("video");
-        if (current && !v.paused && v.readyState >= 3) status("● Live", "live");   // reconnected mid-stream: leave it playing
-        else if (current) play(current); else if (chans.length === 1) play(chans[0]); else showList();
-      });
-    }).catch(function(e){ status("Error", true); info(esc(e && e.message || e)); });
-  }
-  ha = GlassesHA.connect({
-    status: status, ready: ready,
+  var H = {
     noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/tv/?token=YOUR_TOKEN</b>"); },
-    badToken: function(){ status("Token rejected", true); info("Home Assistant rejected the access token. Re-add the app with a valid token."); }
-  });
+    badToken: function(){ status("Token rejected", true); stop(); $("player").hidden = true; $("channels").hidden = true; info("Home Assistant rejected the access token. Re-add the app with a valid token on the link."); }
+  };
+  function load(){
+    status("Connecting…");
+    ha.entities(LABEL).then(function(list){
+      list = list.filter(function(e){ return e.entity_id.indexOf("camera.") === 0; });
+      chans = list.map(function(e){ names[e.entity_id] = clean(e.name); return e.entity_id; });
+      if (!chans.length) { status("Ready"); info("No channels yet. In Home Assistant, add the <b>Glasses TV</b> label to the IPTV camera(s) you want here."); return; }
+      chans.sort(function(a, b){ return (names[a] || a).localeCompare(names[b] || b); });
+      info("");
+      if (current) play(current); else if (chans.length === 1) play(chans[0]); else showList();
+    }).catch(function(e){ var t = ha.describe(e, H); if (t === null) return; status(t, true); if (t !== "Offline") info(esc(e.message)); setTimeout(function(){ if (!chans.length && !document.hidden) load(); }, 4000); });
+  }
+  window.addEventListener("online", function(){ if (!document.hidden) { if (current && $("video").readyState < 3) play(current); else if (!chans.length) load(); } });
+  load();
 })();
 </script>
 </body>
