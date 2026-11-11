@@ -42,6 +42,14 @@
 (function () {
   var LABEL = "glasses";   // HA label id: entities carrying it appear here, grouped by their Home Assistant area
   var OTHER = "Other";
+  // Rooms for the glasses only (these entities have no area in Home Assistant, or are shown in a different room here)
+  var ROOMS = {
+    "input_boolean.cooker_hood_light": "Kitchen",
+    "switch.hallway_lamp": "Hallway",
+    "switch.media_wall": "Living Room",
+    "input_boolean.fire": "Living Room",
+    "switch.blue_lamp": "Living Room"
+  };
   var $list = document.getElementById("list"), $status = document.getElementById("status"), $info = document.getElementById("info"),
       $back = document.getElementById("back"), $title = document.getElementById("title");
   var ha = GlassesHA, ents = [], states = {}, names = {}, rooms = {}, timer = null, busyUntil = {}, room = null, shown = "";
@@ -115,7 +123,7 @@
       ents = list.map(function(e){ return e.entity_id; });
       rooms = {};
       list.forEach(function(e){ var prev = states[e.entity_id]; states[e.entity_id] = e.state; names[e.entity_id] = clean(e.name);
-        var r = e.area || OTHER; (rooms[r] = rooms[r] || []).push(e.entity_id);
+        var r = ROOMS[e.entity_id] || e.area || OTHER; (rooms[r] = rooms[r] || []).push(e.entity_id);
         if (prev !== undefined && prev !== e.state) busyUntil[e.entity_id] = 0; });
       if (room && !rooms[room]) room = null;
       if (!ents.length) { status("Ready"); info("Nothing nominated yet. In Home Assistant, add the <b>Glasses</b> label to the lights and switches you want here."); }
