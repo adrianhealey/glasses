@@ -29,13 +29,15 @@
 <header><h1>Front door</h1><span id="status">Connecting…</span></header>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
 <div id="info" class="msg" hidden></div>
-<script src="../shared.js?v=2"></script>
+<script src="../shared.js?v=5"></script>
 <script>
 (function () {
   var CAMERA = "camera.ades_security_utility";
+  var FRAME_GAP = 600;          // ms between stills (short requests: no connection is held open)
+  var AUTO_PAUSE = 3 * 60000;   // pause after 3 minutes so a forgotten app doesn't keep pulling pictures
   var $view = document.getElementById("view"), $cam = document.getElementById("cam"), $status = document.getElementById("status"),
       $info = document.getElementById("info"), $paused = document.getElementById("paused");
-  var ha = GlassesHA, camToken = null, paused = false, mode = "stream", timer = null, tokTimer = null, shown = null;
+  var ha = GlassesHA, camToken = null, paused = false, timer = null, tokTimer = null, startedAt = 0, running = false, fails = 0;
   function status(t, cls){ $status.textContent = t; $status.className = cls === true ? "err" : (cls || ""); }
   function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
   var base = ha.HA_URL;
@@ -54,39 +56,36 @@
       $view.hidden = false; info("");
       tokTimer = setTimeout(refreshToken, 60000);
       return t;
-    }).catch(function(e){
-      var t = ha.describe(e, H); if (t === null) return;
-      status(t, true); tokTimer = setTimeout(function(){ refreshToken().then(show); }, 4000);
+    }, function(e){
+      var t = ha.describe(e, H); if (t === null) throw e;
+      status(t, true);
+      if (t === "Offline") ha.explain(e, $info, function(){ return $status.textContent === "Offline"; });
       throw e;
     });
   }
 
-  function show(){
+  function frame(){
     clearTimeout(timer);
-    if (paused || !camToken || document.hidden) return;
-    if (mode === "stream") {
-      var url = base + "/api/camera_proxy_stream/" + CAMERA + "?token=" + encodeURIComponent(camToken);
-      if (shown) return;   // keep the running stream; a new token only matters when it has to reconnect
-      shown = url;
-      $cam.onload = function(){ status("● Live", "live"); };
-      $cam.onerror = function(){ shown = null; mode = "snapshot"; show(); };
-      $cam.src = url;
-    } else {
-      // fallback: a fresh still every second
-      var next = new Image();
-      next.onload = function(){ $cam.src = next.src; status("● Live", "live"); timer = setTimeout(show, 1000); };
-      next.onerror = function(){ status("Reconnecting…", true); timer = setTimeout(function(){ refreshToken().then(show, function(){}); }, 3000); };
-      next.src = base + "/api/camera_proxy/" + CAMERA + "?token=" + encodeURIComponent(camToken) + "&t=" + Date.now();
-    }
+    if (!running) return;
+    if (Date.now() - startedAt > AUTO_PAUSE) { pause(); return; }
+    var next = new Image(), t0 = Date.now();
+    next.onload = function(){ if (!running) return; fails = 0; $cam.src = next.src; status("● Live", "live"); info("");
+      timer = setTimeout(frame, Math.max(0, FRAME_GAP - (Date.now() - t0))); };
+    next.onerror = function(){ if (!running) return; fails++; status("Reconnecting…", true);
+      timer = setTimeout(function(){ (fails % 3 === 0 ? refreshToken() : Promise.resolve()).then(frame, function(){ timer = setTimeout(frame, 4000); }); }, 2000); };
+    next.src = base + "/api/camera_proxy/" + CAMERA + "?token=" + encodeURIComponent(camToken) + "&t=" + Date.now();
   }
-  function stop(){ clearTimeout(timer); $cam.onerror = null; $cam.onload = null; $cam.removeAttribute("src"); shown = null; }
-  function start(){ stop(); mode = "stream"; status("Connecting…"); refreshToken().then(function(){ $view.focus(); show(); }, function(){}); }
+  function stop(){ running = false; clearTimeout(timer); clearTimeout(tokTimer); }
+  function pause(){ stop(); paused = true; $paused.hidden = false; status("Paused"); }
+  function start(){
+    stop(); paused = false; $paused.hidden = true; status("Connecting…");
+    refreshToken().then(function(){ running = true; startedAt = Date.now(); $view.focus(); frame(); },
+      function(){ if (!paused && !document.hidden) timer = setTimeout(start, 5000); });
+  }
 
-  $view.addEventListener("click", function(){
-    if (paused) { paused = false; $paused.hidden = true; start(); }
-    else { paused = true; stop(); $paused.hidden = false; status("Paused"); }
-  });
-  document.addEventListener("visibilitychange", function(){ if (document.hidden) { stop(); clearTimeout(tokTimer); } else if (!paused) start(); });
+  $view.addEventListener("click", function(){ if (paused || !running) start(); else pause(); });
+  document.addEventListener("visibilitychange", function(){ if (document.hidden) stop(); else if (!paused) start(); });
+  window.addEventListener("pagehide", stop);
   window.addEventListener("online", function(){ if (!paused && !document.hidden) start(); });
   start();
 })();
