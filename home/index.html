@@ -29,19 +29,25 @@
   .state{font-size:22px;color:var(--dim);font-weight:600;text-transform:uppercase}
   .on .state{color:var(--on)} .busy{opacity:.55} .unavail .name,.unavail .state{color:#555}
   .msg{font-size:22px;color:var(--dim);line-height:1.35;padding:6px 2px}
+  button.room .dot{border-radius:10px}
+  button.back{width:100%;padding:10px 18px;border-radius:16px;border:3px solid transparent;background:#101820;color:#bfe3ff;font:inherit;font-size:22px;text-align:left;margin-bottom:10px}
+  button.back:focus{outline:none;border-color:var(--focus)}
 </style>
 </head>
 <body>
-<header><h1>Home</h1><span id="status">Connecting…</span></header>
-<main><ul id="list"></ul><div id="info" class="msg" hidden></div></main>
+<header><h1 id="title">Home</h1><span id="status">Connecting…</span></header>
+<main><button class="back" id="back" hidden>◀ Rooms</button><ul id="list"></ul><div id="info" class="msg" hidden></div></main>
 <script src="../shared.js?v=8"></script>
 <script>
 (function () {
-  var LABEL = "glasses";   // HA label id: entities carrying it appear here
-  var $list = document.getElementById("list"), $status = document.getElementById("status"), $info = document.getElementById("info");
-  var ha = GlassesHA, ents = [], states = {}, names = {}, timer = null, busyUntil = {};
+  var LABEL = "glasses";   // HA label id: entities carrying it appear here, grouped by their Home Assistant area
+  var OTHER = "Other";
+  var $list = document.getElementById("list"), $status = document.getElementById("status"), $info = document.getElementById("info"),
+      $back = document.getElementById("back"), $title = document.getElementById("title");
+  var ha = GlassesHA, ents = [], states = {}, names = {}, rooms = {}, timer = null, busyUntil = {}, room = null, shown = "";
   function status(t, err){ $status.textContent = t; $status.className = err ? "err" : ""; }
   function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
+  function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
   function clean(n){ n = String(n).trim(); var w = n.split(/\s+/), h = w.length / 2;
     if (w.length % 2 === 0 && w.slice(0,h).join(" ").toLowerCase() === w.slice(h).join(" ").toLowerCase()) n = w.slice(0,h).join(" ");
     return n.charAt(0).toUpperCase() + n.slice(1); }
@@ -55,32 +61,63 @@
     if (t === "Offline") ha.explain(e, $info, function(){ return $status.textContent === "Offline"; });   // show why
     return t;
   }
+  function roomNames(){
+    return Object.keys(rooms).sort(function(a, b){ return a === OTHER ? 1 : b === OTHER ? -1 : a.localeCompare(b); });
+  }
+  function grouped(){ return roomNames().length > 1; }
 
+  // Rooms view (when entities span more than one room) or the entities of one room
   function render(){
-    ents.sort(function(a,b){ return (names[a]||a).localeCompare(names[b]||b); });
-    var order = [].map.call($list.querySelectorAll("button.ent"), function(b){ return b.dataset.id; }).join(",");
-    if (order !== ents.join(",")) {
-      $list.innerHTML = ents.map(function(id){ return '<li><button class="ent" data-id="'+id+'"><span class="dot"></span><span class="name"></span><span class="state"></span></button></li>'; }).join("");
-      [].forEach.call($list.querySelectorAll("button.ent"), function(b){ b.addEventListener("click", function(){ toggle(b); }); });
+    var showRooms = grouped() && !room;
+    var ids = showRooms ? roomNames() : (room ? (rooms[room] || []) : ents).slice().sort(function(a,b){ return (names[a]||a).localeCompare(names[b]||b); });
+    var key = (showRooms ? "R:" : "E:") + ids.join(",");
+    $back.hidden = showRooms || !grouped();
+    $title.textContent = showRooms || !room ? "Home" : room;
+    if (key !== shown) {
+      shown = key;
+      $list.innerHTML = ids.map(function(id){
+        return '<li><button class="ent' + (showRooms ? ' room' : '') + '" data-id="' + esc(id) + '"><span class="dot"></span><span class="name"></span><span class="state"></span></button></li>'; }).join("");
+      [].forEach.call($list.querySelectorAll("button.ent"), function(b){
+        b.addEventListener("click", function(){ if (b.classList.contains("room")) openRoom(b.dataset.id); else toggle(b); }); });
+      var f = $list.querySelector("button.ent"); if (f) f.focus();
     }
     [].forEach.call($list.querySelectorAll("button.ent"), function(b){
-      var id = b.dataset.id, st = states[id], on = ON.indexOf(st) >= 0, un = !st || st === "unavailable" || st === "unknown";
-      b.classList.toggle("on", on); b.classList.toggle("unavail", un);
+      var id = b.dataset.id;
+      if (b.classList.contains("room")) {
+        var members = rooms[id] || [], on = members.filter(function(m){ return ON.indexOf(states[m]) >= 0; }).length;
+        b.classList.toggle("on", on > 0);
+        b.querySelector(".name").textContent = id;
+        b.querySelector(".state").textContent = on ? on + " on" : "off";
+        b.setAttribute("aria-label", id + ", " + (on ? on + " on" : "all off"));
+        return;
+      }
+      var st = states[id], isOn = ON.indexOf(st) >= 0, un = !st || st === "unavailable" || st === "unknown";
+      b.classList.toggle("on", isOn); b.classList.toggle("unavail", un);
       b.classList.toggle("busy", (busyUntil[id] || 0) > Date.now());
       b.querySelector(".name").textContent = names[id] || id;
       b.querySelector(".state").textContent = un ? "—" : (/^(script|scene|button|input_button)\./.test(id) ? "run" : st);
       b.setAttribute("aria-label", (names[id]||id) + ", " + (un ? "unavailable" : st));
     });
-    if (!document.activeElement || document.activeElement === document.body) { var f = $list.querySelector("button.ent"); if (f) f.focus(); }
+    if (!document.activeElement || document.activeElement === document.body) { var g = $list.querySelector("button.ent"); if (g) g.focus(); }
   }
+
+  function openRoom(r){ room = r; shown = ""; history.pushState({ room:r }, "", location.pathname + location.search + "#room"); render(); }
+  function closeRoom(){ var was = room; room = null; shown = ""; render();
+    var b = was && $list.querySelector('[data-id="' + was.replace(/"/g, '\\"') + '"]'); if (b) b.focus(); }
+  $back.addEventListener("click", function(){ history.back(); });
+  window.addEventListener("popstate", function(){ if (room) closeRoom(); });
+  document.addEventListener("keydown", function(e){ if ((e.key === "Escape" || e.key === "Backspace") && room) { e.preventDefault(); history.back(); } });
 
   function load(){
     clearTimeout(timer);
     if (document.hidden) return;
     ha.entities(LABEL).then(function(list){
       ents = list.map(function(e){ return e.entity_id; });
+      rooms = {};
       list.forEach(function(e){ var prev = states[e.entity_id]; states[e.entity_id] = e.state; names[e.entity_id] = clean(e.name);
+        var r = e.area || OTHER; (rooms[r] = rooms[r] || []).push(e.entity_id);
         if (prev !== undefined && prev !== e.state) busyUntil[e.entity_id] = 0; });
+      if (room && !rooms[room]) room = null;
       if (!ents.length) { status("Ready"); info("Nothing nominated yet. In Home Assistant, add the <b>Glasses</b> label to the lights and switches you want here."); }
       else { info(""); status("Ready"); render(); }
       timer = setTimeout(load, 4000);
