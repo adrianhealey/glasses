@@ -105,8 +105,10 @@
       function viaHlsJs(){ return loadHlsJs().then(function(Hls){
         if (!Hls.isSupported()) throw new Error("this browser can't play HLS");
         // generous timeouts: a freshly started HA stream can take a while to produce its first segments
-        // HA only keeps a short live playlist (10s segments), so start one segment from the live edge instead of hls.js's default three
-        hls = new Hls({ lowLatencyMode:false, backBufferLength:30, liveSyncDurationCount:1, liveMaxLatencyDurationCount:4, maxBufferLength:20,
+        // The glasses' link through the phone is bursty, so keep a deeper cushion: start two segments (~15s) behind live,
+        // never jump forward to catch up unless 10 segments behind, and buffer up to 40s ahead.
+        hls = new Hls({ lowLatencyMode:false, backBufferLength:20, liveSyncDurationCount:2, liveMaxLatencyDurationCount:10, maxBufferLength:40, maxMaxBufferLength:60,
+          abrEwmaDefaultEstimate:1500000,
           manifestLoadingTimeOut:30000, manifestLoadingMaxRetry:6, manifestLoadingRetryDelay:1500,
           levelLoadingTimeOut:30000, levelLoadingMaxRetry:8, levelLoadingRetryDelay:1500,
           fragLoadingTimeOut:60000, fragLoadingMaxRetry:8, fragLoadingRetryDelay:1500 });
