@@ -175,6 +175,12 @@
   // leaving the app: close the channel now rather than after HA's 5-minute idle timeout
   window.addEventListener("pagehide", function(){ stop(); ha.stopStream(current); });
   document.addEventListener("freeze", function(){ stop(); ha.stopStream(current); });
+  // leaving the app (even if the glasses keep it running): stop the stream straight away; select the picture to resume
+  window.addEventListener("blur", function(){
+    if (!current || !hls && !$("video").getAttribute("src")) return;
+    stop(); ha.stopStream(current);
+    $("paused").textContent = "Stopped · select to play"; $("paused").hidden = false; status("Stopped");
+  });
   // another glasses app opened: stop streaming so it can use the connection (select the picture to resume)
   ha.onTvOff(function(){
     if (!current) return;
