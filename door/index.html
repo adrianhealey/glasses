@@ -34,8 +34,8 @@
 (function () {
   var LABEL = "glasses_door";   // HA label: the camera carrying it is the one shown here
   var CAMERA = "camera.ades_security_utility";
-  var FRAME_GAP = 600;          // ms between stills (short requests: no connection is held open)
-  var AUTO_PAUSE = 3 * 60000;   // pause after 3 minutes so a forgotten app doesn't keep pulling pictures
+  var FRAME_GAP = 1500;         // ms between stills: kept low so the glasses' connection isn't flooded with requests
+  var AUTO_PAUSE = 2 * 60000;   // pause after 2 minutes so a forgotten app doesn't keep pulling pictures
   var $view = document.getElementById("view"), $cam = document.getElementById("cam"), $status = document.getElementById("status"),
       $info = document.getElementById("info"), $paused = document.getElementById("paused");
   var ha = GlassesHA, camToken = null, paused = false, timer = null, tokTimer = null, startedAt = 0, running = false, fails = 0;
@@ -90,6 +90,9 @@
   $view.addEventListener("click", function(){ if (paused || !running) start(); else pause(); });
   document.addEventListener("visibilitychange", function(){ if (document.hidden) stop(); else if (!paused) start(); });
   window.addEventListener("pagehide", stop);
+  document.addEventListener("freeze", stop);
+  // leaving the app (even if the glasses keep it running): stop fetching straight away; select the picture to resume
+  window.addEventListener("blur", function(){ if (running) pause(); });
   window.addEventListener("online", function(){ if (!paused && !document.hidden) start(); });
   start();
 })();
