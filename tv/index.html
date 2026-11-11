@@ -47,7 +47,11 @@
   var $ = function (id) { return document.getElementById(id); };
   var ha = null, chans = [], names = {}, current = null, hls = null, vol = 0.8;
   try { vol = parseFloat(localStorage.getItem("tv_vol") || "0.8"); } catch (e) {}
-  function status(t, cls){ $("status").textContent = t; $("status").className = cls === true ? "err" : (cls || ""); }
+  function status(t, cls){
+    var v = $("video");
+    if (t === "Offline" && v && !v.paused && v.readyState >= 3) { t = "● Live"; cls = "live"; }  // video keeps flowing even if the HA control link blips
+    $("status").textContent = t; $("status").className = cls === true ? "err" : (cls || "");
+  }
   function info(h){ $("info").hidden = !h; $("info").innerHTML = h || ""; }
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 
@@ -121,6 +125,7 @@
     });
   }
   function play(id){
+    stop();
     current = id; $("channels").hidden = true; $("player").hidden = false; $("paused").hidden = true;
     $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus();
     var vv = $("video"); vv.volume = vol;
@@ -192,7 +197,9 @@
         Object.keys(ev.a).forEach(function(k){ names[k] = (ev.a[k].a && ev.a[k].a.friendly_name) || k; });
         chans.sort(function(a, b){ return (names[a] || a).localeCompare(names[b] || b); });
         info("");
-        if (current) play(current); else if (chans.length === 1) play(chans[0]); else showList();
+        var v = $("video");
+        if (current && !v.paused && v.readyState >= 3) status("● Live", "live");   // reconnected mid-stream: leave it playing
+        else if (current) play(current); else if (chans.length === 1) play(chans[0]); else showList();
       });
     }).catch(function(e){ status("Error", true); info(esc(e && e.message || e)); });
   }
