@@ -28,7 +28,8 @@
         msg.id = i; ws.send(JSON.stringify(msg));
       });
     };
-    api.subscribe = function (msg, cb) { subs[id] = cb; return api.send(msg); };  // send() uses the current id
+    api.subscribe = function (msg, cb) { var i = id; subs[i] = cb; var p = api.send(msg); p.subId = i; return p; };  // send() uses the current id
+    api.unsubscribe = function (subId) { delete subs[subId]; return api.send({ type: "unsubscribe_events", subscription: subId }).catch(function () {}); };
     function open() {
       clearTimeout(timer);
       handlers.status("Connecting…");
