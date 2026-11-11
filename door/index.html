@@ -29,7 +29,7 @@
 <header><h1>Front door</h1><span id="status">Connecting…</span></header>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
 <div id="info" class="msg" hidden></div>
-<script src="../shared.js?v=8"></script>
+<script src="../shared.js?v=9"></script>
 <script>
 (function () {
   var LABEL = "glasses_door";   // HA label: the camera carrying it is the one shown here
@@ -41,7 +41,6 @@
   var ha = GlassesHA, camToken = null, paused = false, timer = null, tokTimer = null, startedAt = 0, running = false, fails = 0;
   function status(t, cls){ $status.textContent = t; $status.className = cls === true ? "err" : (cls || ""); }
   function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
-  var base = ha.HA_URL;
   var H = {
     noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/door/?token=YOUR_TOKEN</b>"); },
     badToken: function(){ status("Token rejected", true); $view.hidden = true; info("Home Assistant rejected the access token. Re-add the app with a valid token on the link."); }
@@ -77,7 +76,7 @@
       timer = setTimeout(frame, Math.max(0, FRAME_GAP - (Date.now() - t0))); };
     next.onerror = function(){ if (!running) return; fails++; status("Reconnecting…", true);
       timer = setTimeout(function(){ (fails % 3 === 0 ? refreshToken() : Promise.resolve()).then(frame, function(){ timer = setTimeout(frame, 4000); }); }, 2000); };
-    next.src = base + "/api/camera_proxy/" + CAMERA + "?token=" + encodeURIComponent(camToken) + "&t=" + Date.now();
+    next.src = ha.base() + "/api/camera_proxy/" + CAMERA + "?token=" + encodeURIComponent(camToken) + "&t=" + Date.now();
   }
   function stop(){ running = false; clearTimeout(timer); clearTimeout(tokTimer); }
   function pause(){ stop(); paused = true; $paused.hidden = false; status("Paused"); }
