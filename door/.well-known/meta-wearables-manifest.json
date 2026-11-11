@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "Front Door",
+  "description": "Live Blue Iris front door camera",
+  "appearance": {
+    "theme_color": "#5AD1FF",
+    "icon": {
+      "src": "../../icons/camera-mono-512.png",
+      "type": "monochrome"
+    }
+  }
+}
