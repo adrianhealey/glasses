@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Switch Home Assistant lights and switches on and off">
+<meta name="mrbd-web-app-capable" content="yes">
+<meta name="application-name" content="Home">
+<meta name="theme-color" content="#000000">
+<title>Home</title>
+<link rel="icon" type="image/png" sizes="192x192" href="../icons/switches-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/switches-apple-180.png">
+<style>
+  [hidden]{display:none!important}
+  :root{--on:#ffc94d;--focus:#5ad1ff;--dim:#8a8a8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000;color:#fff;font-family:system-ui,-apple-system,Roboto,sans-serif;height:100%}
+  body{display:flex;flex-direction:column;padding:14px 16px 10px}
+  header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+  h1{font-size:26px;font-weight:600}
+  #status{font-size:18px;color:var(--dim)} #status.err{color:#ff6b6b}
+  main{flex:1;overflow-y:auto}
+  ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+  button.ent{width:100%;display:flex;align-items:center;gap:16px;padding:14px 18px;border-radius:18px;border:3px solid transparent;background:#141414;color:#fff;font:inherit;text-align:left;min-height:74px}
+  button.ent:focus{outline:none;border-color:var(--focus);background:#1d1d1d}
+  .dot{flex:none;width:30px;height:30px;border-radius:50%;background:#3a3a3a;border:3px solid #666}
+  .on .dot{background:var(--on);border-color:var(--on);box-shadow:0 0 14px var(--on)}
+  .name{flex:1;font-size:26px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .state{font-size:22px;color:var(--dim);font-weight:600;text-transform:uppercase}
+  .on .state{color:var(--on)} .busy{opacity:.55} .unavail .name,.unavail .state{color:#555}
+  .msg{font-size:22px;color:var(--dim);line-height:1.35;padding:6px 2px}
+</style>
+</head>
+<body>
+<header><h1>Home</h1><span id="status">Connecting…</span></header>
+<main><ul id="list"></ul><div id="info" class="msg" hidden></div></main>
+<script src="../shared.js"></script>
+<script>
+(function () {
+  var LABEL = "glasses";   // HA label id: entities carrying it appear here
+  var $list = document.getElementById("list"), $status = document.getElementById("status"), $info = document.getElementById("info");
+  var ha = null, ents = [], states = {}, names = {};
+  function status(t, err){ $status.textContent = t; $status.className = err ? "err" : ""; }
+  function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
+  function clean(n){ n = String(n).trim(); var w = n.split(/\s+/), h = w.length / 2;
+    if (w.length % 2 === 0 && w.slice(0,h).join(" ").toLowerCase() === w.slice(h).join(" ").toLowerCase()) n = w.slice(0,h).join(" ");
+    return n.charAt(0).toUpperCase() + n.slice(1); }
+  var ON = ["on","open","unlocked","playing","heat","home"];
+
+  function render(){
+    ents.sort(function(a,b){ return (names[a]||a).localeCompare(names[b]||b); });
+    var order = [].map.call($list.querySelectorAll("button.ent"), function(b){ return b.dataset.id; }).join(",");
+    if (order !== ents.join(",")) {
+      $list.innerHTML = ents.map(function(id){ return '<li><button class="ent" data-id="'+id+'"><span class="dot"></span><span class="name"></span><span class="state"></span></button></li>'; }).join("");
+      [].forEach.call($list.querySelectorAll("button.ent"), function(b){ b.addEventListener("click", function(){ toggle(b); }); });
+    }
+    [].forEach.call($list.querySelectorAll("button.ent"), function(b){
+      var id = b.dataset.id, st = states[id], on = ON.indexOf(st) >= 0, un = !st || st === "unavailable" || st === "unknown";
+      b.classList.toggle("on", on); b.classList.toggle("unavail", un);
+      b.querySelector(".name").textContent = names[id] || id;
+      b.querySelector(".state").textContent = un ? "—" : (/^(script|scene|button|input_button)\./.test(id) ? "run" : st);
+      b.setAttribute("aria-label", (names[id]||id) + ", " + (un ? "unavailable" : st));
+    });
+    if (!document.activeElement || document.activeElement === document.body) { var f = $list.querySelector("button.ent"); if (f) f.focus(); }
+  }
+
+  function toggle(b){
+    var id = b.dataset.id, d = id.split(".")[0], dom = "homeassistant", svc = "toggle";
+    if (d === "script" || d === "scene") { dom = d; svc = "turn_on"; }
+    else if (d === "button" || d === "input_button") { dom = d; svc = "press"; }
+    else if (d === "lock") { dom = "lock"; svc = states[id] === "locked" ? "unlock" : "lock"; }
+    b.classList.add("busy");
+    ha.send({ type:"call_service", domain:dom, service:svc, target:{ entity_id:id } }).catch(function(){ status("Failed", true); });
+    setTimeout(function(){ b.classList.remove("busy"); }, 4000);
+  }
+
+  function ready(api){
+    ha = api;
+    api.send({ type:"config/entity_registry/list_for_display" }).then(function(reg){
+      ents = reg.entities.filter(function(e){ return (e.lb || []).indexOf(LABEL) >= 0; }).map(function(e){ return e.ei; });
+      if (!ents.length) { status("Ready"); info("Nothing nominated yet. In Home Assistant, add the <b>Glasses</b> label to the lights and switches you want here."); return; }
+      info("");
+      api.subscribe({ type:"subscribe_entities", entity_ids:ents }, function(ev){
+        var k;
+        if (ev.a) for (k in ev.a) { states[k] = ev.a[k].s; if (ev.a[k].a && ev.a[k].a.friendly_name) names[k] = clean(ev.a[k].a.friendly_name); }
+        if (ev.c) for (k in ev.c) { var p = ev.c[k]["+"]; if (p) { if (p.s !== undefined) states[k] = p.s; if (p.a && p.a.friendly_name) names[k] = clean(p.a.friendly_name); }
+          var b = $list.querySelector('[data-id="'+k+'"]'); if (b) b.classList.remove("busy"); }
+        render();
+      });
+      status("Ready");
+    }).catch(function(e){ status("Error", true); info("Couldn't read entities: " + (e && e.message || e)); });
+  }
+
+  ha = GlassesHA.connect({
+    status: status, ready: ready,
+    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/home/#token=YOUR_TOKEN</b><br>Re-add it in the Meta AI app with the token included."); },
+    badToken: function(){ status("Token rejected", true); info("Home Assistant rejected the access token. Create a new long-lived token and re-add the app with it on the link."); }
+  });
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden && ha) ha.reopen(); });
+})();
+</script>
+</body>
+</html>
