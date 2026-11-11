@@ -80,6 +80,18 @@
           { method: "POST", headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {});
       } catch (e) {}
     },
+    // stop every TV channel: a TV app left playing in the background would hog the glasses' connection
+    tvOff: function () {
+      if (!token) return;
+      try { fetch(HA_URL + "/api/glasses/stream", { method: "DELETE", headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {}); } catch (e) {}
+    },
+    // when offline, show why in el (at most every 20 s)
+    explain: function (e, el, isOffline) {
+      var now = Date.now();
+      if (api._diagAt && now - api._diagAt < 20000) return;
+      api._diagAt = now;
+      diagnose(e).then(function (d) { if (isOffline()) { el.hidden = false; el.innerHTML = '<span style="font-size:17px">' + d + '</span>'; } });
+    },
     // standard handling of a failed request: returns the status text to show
     describe: function (e, h) {
       if (e && e.code === "auth") { h.badToken(); return null; }
@@ -89,4 +101,9 @@
     }
   };
   window.GlassesHA = api;
+  // any app other than TV: switch off a TV channel that may still be streaming in the background
+  if (!/\/tv\//.test(location.pathname)) {
+    api.tvOff();
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) api.tvOff(); });
+  }
 })();
