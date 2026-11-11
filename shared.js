@@ -76,6 +76,8 @@
   var api = {
     HA_URL: HA_URL,
     base: base,                                   // the route currently in use (for picture and video links)
+    // pictures/video failing on this route: switch to the other one (and remember it)
+    otherRoute: function () { route = 1 - route; try { localStorage.setItem(BASE_KEY, String(route)); } catch (x) {} return base(); },
     routeName: function () { return NAMES[route]; },
     token: token,
     rest: rest,
