@@ -29,9 +29,10 @@
 <header><h1>Front door</h1><span id="status">Connecting…</span></header>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
 <div id="info" class="msg" hidden></div>
-<script src="../shared.js?v=6"></script>
+<script src="../shared.js?v=7"></script>
 <script>
 (function () {
+  var LABEL = "glasses_door";   // HA label: the camera carrying it is the one shown here
   var CAMERA = "camera.ades_security_utility";
   var FRAME_GAP = 600;          // ms between stills (short requests: no connection is held open)
   var AUTO_PAUSE = 3 * 60000;   // pause after 3 minutes so a forgotten app doesn't keep pulling pictures
@@ -49,9 +50,12 @@
   // The camera's own access token rotates every few minutes; fetch it with an ordinary request.
   function refreshToken(){
     clearTimeout(tokTimer);
-    return ha.state(CAMERA).then(function(s){
+    return ha.entities(LABEL).then(function(list){
+      var s = list.filter(function(e){ return e.entity_id.indexOf("camera.") === 0; })[0];
+      if (!s) { status("No camera", true); info("In Home Assistant, add the <b>Glasses Door</b> label to the camera to show here."); throw new Error("no camera"); }
+      CAMERA = s.entity_id;
       if (s.state === "unavailable") status("Camera offline", true);
-      var t = s.attributes && s.attributes.access_token;
+      var t = s.access_token;
       if (t) camToken = t;
       $view.hidden = false; info("");
       tokTimer = setTimeout(refreshToken, 60000);
