@@ -55,6 +55,14 @@
       return rest("GET", "/api/glasses/stream?entity_id=" + encodeURIComponent(entityId), undefined, 30000)
         .then(function (r) { return HA_URL + r.url.replace("/api/hls/", "/api/glasses_hls/"); });
     },
+    // stop a channel's stream so its IPTV connection closes straight away (keepalive: survives the page closing)
+    stopStream: function (entityId) {
+      if (!token || !entityId) return;
+      try {
+        fetch(HA_URL + "/api/glasses/stream?entity_id=" + encodeURIComponent(entityId),
+          { method: "POST", headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {});
+      } catch (e) {}
+    },
     // standard handling of a failed request: returns the status text to show
     describe: function (e, h) {
       if (e && e.code === "auth") { h.badToken(); return null; }
