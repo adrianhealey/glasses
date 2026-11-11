@@ -3,8 +3,13 @@
 // websocket open, but ordinary requests get through fine.
 // The access token comes from the app link (…/?token=XXXX) so nothing has to be typed on the glasses.
 (function () {
-  var HA_URL = "https://g2khwjqw9m6bm8c8ipdy970d7nmv28a1.ui.nabu.casa";
-  var KEY = "ha_glasses_llat";
+  var HA_URL = "https://g2khwjqw9m6bm8c8ipdy970d7nmv28a1.ui.nabu.casa";   // Nabu Casa remote access
+  var TS_URL = "https://homeassistant.tail0892f8.ts.net";                   // Tailscale (needs Tailscale on the phone)
+  var URLS = [HA_URL, TS_URL], NAMES = ["Nabu Casa", "Tailscale"];
+  var KEY = "ha_glasses_llat", BASE_KEY = "ha_glasses_route";
+  var route = 0;
+  try { route = parseInt(localStorage.getItem(BASE_KEY) || "0", 10) === 1 ? 1 : 0; } catch (e) {}
+  function base() { return URLS[route]; }
 
   function readToken() {
     var m = (location.hash || "").match(/token=([^&]+)/) || (location.search || "").match(/[?&]token=([^&]+)/);
@@ -19,15 +24,28 @@
 
   function err(msg, code) { var e = new Error(msg); e.code = code; return e; }
 
-  // fetch with a timeout; 401 becomes code "auth", anything network-ish becomes code "offline"
+  // Try the route that last worked; if it doesn't answer, try the other one and remember whichever works.
   function rest(method, path, body, timeoutMs) {
+    var first = route;
+    return attempt(first, method, path, body, timeoutMs).catch(function (e) {
+      if (!e || e.code !== "offline") throw e;
+      var other = 1 - first;
+      return attempt(other, method, path, body, timeoutMs).then(function (r) {
+        route = other; try { localStorage.setItem(BASE_KEY, String(other)); } catch (x) {}
+        return r;
+      }, function (e2) { e2.why = NAMES[first] + ": " + (e.why || "failed") + ", " + NAMES[other] + ": " + (e2.why || "failed"); throw e2; });
+    });
+  }
+
+  // fetch with a timeout; 401 becomes code "auth", anything network-ish becomes code "offline"
+  function attempt(r, method, path, body, timeoutMs) {
     if (!token) return Promise.reject(err("no token", "notoken"));
     var ctl = window.AbortController ? new AbortController() : null;
     var t = setTimeout(function () { if (ctl) ctl.abort(); }, timeoutMs || 15000);
     var opts = { method: method, headers: { "Authorization": "Bearer " + token }, cache: "no-store" };
     if (ctl) opts.signal = ctl.signal;
     if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
-    return fetch(HA_URL + path, opts).then(function (r) {
+    return fetch(URLS[r] + path, opts).then(function (r) {
       clearTimeout(t);
       if (r.status === 401) throw err("Home Assistant rejected the access token", "auth");
       return r.text().then(function (txt) {
@@ -48,14 +66,17 @@
   }
   function diagnose(e) {
     return Promise.all([probe("https://www.google.com/generate_204?x=" + Date.now(), 8000),
-                        probe(HA_URL + "/manifest.json?x=" + Date.now(), 12000)]).then(function (r) {
-      return "Internet: " + r[0] + " · Home Assistant: " + r[1] + (e && e.why ? " · last request: " + e.why : "") +
+                        probe(HA_URL + "/manifest.json?x=" + Date.now(), 12000),
+                        probe(TS_URL + "/manifest.json?x=" + Date.now(), 12000)]).then(function (r) {
+      return "Internet: " + r[0] + " · Nabu Casa: " + r[1] + " · Tailscale: " + r[2] + (e && e.why ? " · last: " + e.why : "") +
         " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     });
   }
 
   var api = {
     HA_URL: HA_URL,
+    base: base,                                   // the route currently in use (for picture and video links)
+    routeName: function () { return NAMES[route]; },
     token: token,
     rest: rest,
     diagnose: diagnose,
@@ -72,20 +93,20 @@
     // start a camera's HLS stream: returns its CORS-enabled playlist URL
     stream: function (entityId) {
       return rest("GET", "/api/glasses/stream?entity_id=" + encodeURIComponent(entityId), undefined, 30000)
-        .then(function (r) { return HA_URL + r.url.replace("/api/hls/", "/api/glasses_hls/"); });
+        .then(function (r) { return base() + r.url.replace("/api/hls/", "/api/glasses_hls/"); });
     },
     // stop a channel's stream so its IPTV connection closes straight away (keepalive: survives the page closing)
     stopStream: function (entityId) {
       if (!token || !entityId) return;
       try {
-        fetch(HA_URL + "/api/glasses/stream?stop=1&entity_id=" + encodeURIComponent(entityId),
+        fetch(base() + "/api/glasses/stream?stop=1&entity_id=" + encodeURIComponent(entityId),
           { headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {});
       } catch (e) {}
     },
     // stop every TV channel: a TV app left playing in the background would hog the glasses' connection
     tvOff: function () {
       if (!token) return;
-      try { fetch(HA_URL + "/api/glasses/stream?all_off=1", { headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {}); } catch (e) {}
+      try { fetch(base() + "/api/glasses/stream?all_off=1", { headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {}); } catch (e) {}
     },
     // when offline, show why in el (at most every 20 s)
     explain: function (e, el, isOffline) {
