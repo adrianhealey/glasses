@@ -39,7 +39,7 @@
   <div id="controls"><button id="voldown">🔉 −</button><button id="volup">🔊 +</button><button id="mute">Mute</button><button id="list">Channels</button></div>
 </div>
 <div id="info" class="note" hidden></div>
-<script src="../shared.js?v=2"></script>
+<script src="../shared.js?v=3"></script>
 <script>
 (function () {
   var LABEL = "glasses_tv";     // HA label id: cameras carrying the "Glasses TV" label are listed as channels
@@ -62,7 +62,7 @@
     var v = $("video"); v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load();
   }
   function showList(){
-    stop(); current = null; $("player").hidden = true; $("title").textContent = "TV";
+    stop(); ha.stopStream(current); current = null; $("player").hidden = true; $("title").textContent = "TV";
     $("channels").hidden = false;
     $("channels").innerHTML = chans.map(function(id){ return '<li><button data-id="' + id + '">' + esc(names[id] || id) + '</button></li>'; }).join("");
     [].forEach.call(document.querySelectorAll("#channels button"), function(b){ b.addEventListener("click", function(){ play(b.dataset.id); }); });
@@ -89,8 +89,8 @@
     current = id; $("channels").hidden = true; $("player").hidden = false; $("paused").hidden = true;
     $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus();
     var vv = $("video"); vv.volume = vol;
-    // HLS only: a WebRTC attempt makes go2rtc open a second connection to the IPTV provider,
-    // which (on single-connection IPTV plans) kicks off the stream HA is already pulling.
+    // HLS only (no WebRTC, which would open an extra IPTV connection). Home Assistant closes
+    // the previous channel's stream before it starts this one, so switching uses one connection.
     playHls(id);
   }
   function playHls(id){
@@ -148,7 +148,7 @@
   $("mute").addEventListener("click", function(){ var v = $("video"); v.muted = !v.muted; $("mute").textContent = v.muted ? "Unmute" : "Mute"; if (!v.muted) info(""); });
   $("list").addEventListener("click", function(){ if (chans.length) showList(); });
   document.addEventListener("visibilitychange", function(){
-    if (document.hidden) stop(); else if (current) play(current); else if (!chans.length) load();
+    if (document.hidden) { stop(); ha.stopStream(current); } else if (current) play(current); else if (!chans.length) load();
   });
 
   var H = {
@@ -166,6 +166,8 @@
       if (current) play(current); else if (chans.length === 1) play(chans[0]); else showList();
     }).catch(function(e){ var t = ha.describe(e, H); if (t === null) return; status(t, true); if (t !== "Offline") info(esc(e.message)); setTimeout(function(){ if (!chans.length && !document.hidden) load(); }, 4000); });
   }
+  // leaving the app: close the channel now rather than after HA's 5-minute idle timeout
+  window.addEventListener("pagehide", function(){ stop(); ha.stopStream(current); });
   window.addEventListener("online", function(){ if (!document.hidden) { if (current && $("video").readyState < 3) play(current); else if (!chans.length) load(); } });
   load();
 })();
