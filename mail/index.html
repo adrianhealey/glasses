@@ -56,7 +56,7 @@
   <div id="rnav"><button id="up">▲ Up</button><button id="down">▼ Down</button></div>
 </div>
 <div id="info" class="note" hidden></div>
-<script src="../shared.js?v=2"></script>
+<script src="../shared.js?v=5"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -80,7 +80,7 @@
     noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/mail/?token=YOUR_TOKEN</b>"); },
     badToken: function(){ status("Token rejected", true); info("Home Assistant rejected the access token. Re-add the app with a valid token on the link."); }
   };
-  function failed(e){ var t = GlassesHA.describe(e, H); if (t) { status(t, true); if (t !== "Offline") info(esc(e.message)); } return t; }
+  function failed(e){ var t = GlassesHA.describe(e, H); if (t) { status(t, true); if (t !== "Offline") info(esc(e.message)); else GlassesHA.explain(e, $("info"), function(){ return $("status").textContent === "Offline"; }); } return t; }
 
   function showList(){
     $("reader").hidden = true; $("listView").hidden = false; $("listMain").hidden = false; $("title").textContent = "Mail";
