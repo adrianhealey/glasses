@@ -39,7 +39,7 @@
   <div id="controls"><button id="voldown">🔉 −</button><button id="volup">🔊 +</button><button id="mute">Mute</button><button id="list">Channels</button></div>
 </div>
 <div id="info" class="note" hidden></div>
-<script src="../shared.js?v=6"></script>
+<script src="../shared.js?v=8"></script>
 <script>
 (function () {
   var LABEL = "glasses_tv";     // HA label id: cameras carrying the "Glasses TV" label are listed as channels
@@ -144,6 +144,7 @@
 
   $("screen").addEventListener("click", function(){
     var v = $("video");
+    if (current && !hls && !v.getAttribute("src")) { play(current); return; }   // stopped because another app opened
     if (v.paused) { v.play(); $("paused").hidden = true; status("● Live", "live"); } else { v.pause(); $("paused").hidden = false; status("Paused"); }
   });
   function setVol(d){ var v = $("video"); vol = Math.max(0, Math.min(1, Math.round((vol + d) * 10) / 10)); v.volume = vol; v.muted = false;
@@ -173,6 +174,13 @@
   }
   // leaving the app: close the channel now rather than after HA's 5-minute idle timeout
   window.addEventListener("pagehide", function(){ stop(); ha.stopStream(current); });
+  document.addEventListener("freeze", function(){ stop(); ha.stopStream(current); });
+  // another glasses app opened: stop streaming so it can use the connection (select the picture to resume)
+  ha.onTvOff(function(){
+    if (!current) return;
+    stop(); ha.stopStream(current);
+    $("paused").textContent = "Stopped · select to play"; $("paused").hidden = false; status("Stopped");
+  });
   window.addEventListener("online", function(){ if (!document.hidden) { if (current && $("video").readyState < 3) play(current); else if (!chans.length) load(); } });
   load();
 })();
