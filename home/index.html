@@ -131,8 +131,8 @@
       if (room && !rooms[room]) room = null;
       if (!ents.length) { status("Ready"); info("Nothing nominated yet. In Home Assistant, add the <b>Glasses</b> label to the lights and switches you want here."); }
       else { info(""); status("Ready"); render(); }
-      timer = setTimeout(load, 4000);
-    }).catch(function(e){ if (failed(e) !== null) timer = setTimeout(load, 4000); });
+      timer = setTimeout(load, 8000);
+    }).catch(function(e){ if (failed(e) !== null) timer = setTimeout(load, 8000); });
   }
 
   function toggle(b){
@@ -150,6 +150,10 @@
   load();
   document.addEventListener("visibilitychange", function(){ if (!document.hidden) load(); });
   window.addEventListener("online", load);
+  // stop polling while the app isn't in front; refresh as soon as it is
+  window.addEventListener("blur", function(){ clearTimeout(timer); });
+  window.addEventListener("focus", load);
+  window.addEventListener("pagehide", function(){ clearTimeout(timer); });
 })();
 </script>
 </body>
