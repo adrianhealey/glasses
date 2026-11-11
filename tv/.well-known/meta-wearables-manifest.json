@@ -3,9 +3,9 @@
   "name": "TV",
   "description": "Watch IPTV channels through Home Assistant",
   "appearance": {
-    "theme_color": "#FF7A59",
+    "theme_color": "#C724B1",
     "icon": {
-      "src": "../../icons/tv-mono-512.png",
+      "src": "../../icons/sky-mono-512.png",
       "type": "monochrome"
     }
   }
