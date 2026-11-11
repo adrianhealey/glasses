@@ -62,10 +62,12 @@
     // entities carrying a HA label: [{entity_id, name, state, access_token?}]
     entities: function (label) { return rest("GET", "/api/glasses/entities?label=" + encodeURIComponent(label)); },
     state: function (entityId) { return rest("GET", "/api/states/" + entityId); },
-    // call a service; withResponse returns the service's response data
+    // call a service; withResponse returns the service's response data.
+    // A GET (to the glasses_hls helper): the glasses' connection through the phone doesn't reliably carry POSTs.
     service: function (domain, service, data, withResponse) {
-      return rest("POST", "/api/services/" + domain + "/" + service + (withResponse ? "?return_response" : ""), data || {}, 30000)
-        .then(function (r) { return withResponse ? (r && r.service_response) : r; });
+      return rest("GET", "/api/glasses/call?domain=" + encodeURIComponent(domain) + "&service=" + encodeURIComponent(service) +
+        "&data=" + encodeURIComponent(JSON.stringify(data || {})) + (withResponse ? "&response=1" : ""), undefined, 30000)
+        .then(function (r) { return r && r.service_response; });
     },
     // start a camera's HLS stream: returns its CORS-enabled playlist URL
     stream: function (entityId) {
@@ -76,14 +78,14 @@
     stopStream: function (entityId) {
       if (!token || !entityId) return;
       try {
-        fetch(HA_URL + "/api/glasses/stream?entity_id=" + encodeURIComponent(entityId),
-          { method: "POST", headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {});
+        fetch(HA_URL + "/api/glasses/stream?stop=1&entity_id=" + encodeURIComponent(entityId),
+          { headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {});
       } catch (e) {}
     },
     // stop every TV channel: a TV app left playing in the background would hog the glasses' connection
     tvOff: function () {
       if (!token) return;
-      try { fetch(HA_URL + "/api/glasses/stream", { method: "DELETE", headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {}); } catch (e) {}
+      try { fetch(HA_URL + "/api/glasses/stream?all_off=1", { headers: { "Authorization": "Bearer " + token }, keepalive: true, cache: "no-store" }).catch(function () {}); } catch (e) {}
     },
     // when offline, show why in el (at most every 20 s)
     explain: function (e, el, isOffline) {
