@@ -51,9 +51,51 @@
   function info(h){ $("info").hidden = !h; $("info").innerHTML = h || ""; }
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 
+  var pc = null, rtcSub = null;
+  function stopRtc(){
+    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+    if (rtcSub !== null && ha) { ha.unsubscribe(rtcSub); rtcSub = null; }
+  }
+  // WebRTC through HA's built-in go2rtc: signalling over the websocket, so no CORS is involved.
+  function playWebRTC(id, v){
+    return ha.send({ type:"camera/webrtc/get_client_config", entity_id:id }).then(function(cfg){
+      return new Promise(function(resolve, reject){
+        var sessionId = null, pending = [], done = false;
+        var fail = function(msg){ if (!done) { done = true; stopRtc(); reject(new Error(msg)); } };
+        pc = new RTCPeerConnection(cfg.configuration || {});
+        pc.addTransceiver("video", { direction:"recvonly" });
+        pc.addTransceiver("audio", { direction:"recvonly" });
+        if (cfg.dataChannel) pc.createDataChannel(cfg.dataChannel);
+        var ms = new MediaStream();
+        pc.ontrack = function(ev){ ms.addTrack(ev.track); if (v.srcObject !== ms) v.srcObject = ms; };
+        pc.onconnectionstatechange = function(){ if (pc && (pc.connectionState === "failed")) fail("connection failed"); };
+        pc.onicecandidate = function(ev){
+          if (!ev.candidate) return;
+          var c = ev.candidate.toJSON();
+          if (sessionId) ha.send({ type:"camera/webrtc/candidate", entity_id:id, session_id:sessionId, candidate:c }).catch(function(){});
+          else pending.push(c);
+        };
+        v.onplaying = function(){ status("● Live", "live"); if (!done) { done = true; resolve(); } };
+        pc.createOffer().then(function(offer){ return pc.setLocalDescription(offer).then(function(){ return offer; }); }).then(function(offer){
+          var p = ha.subscribe({ type:"camera/webrtc/offer", entity_id:id, offer:offer.sdp }, function(ev){
+            if (ev.type === "session") { sessionId = ev.session_id;
+              pending.forEach(function(c){ ha.send({ type:"camera/webrtc/candidate", entity_id:id, session_id:sessionId, candidate:c }).catch(function(){}); }); pending = []; }
+            else if (ev.type === "answer") { pc.setRemoteDescription({ type:"answer", sdp:ev.answer }).then(function(){ startPlay(v); }).catch(function(e){ fail(e.message); }); }
+            else if (ev.type === "candidate" && ev.candidate) { pc.addIceCandidate(ev.candidate).catch(function(){}); }
+            else if (ev.type === "error") { fail(ev.message || ev.code || "webrtc error"); }
+          });
+          rtcSub = p.subId;
+          p.catch(function(e){ fail(e && (e.message || e.code) || "offer rejected"); });
+        }).catch(function(e){ fail(e.message); });
+        setTimeout(function(){ fail("timed out"); }, 15000);
+      });
+    });
+  }
+
   function stop(){
+    stopRtc();
     if (hls) { hls.destroy(); hls = null; }
-    var v = $("video"); v.pause(); v.removeAttribute("src"); v.load();
+    var v = $("video"); v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load();
   }
   function showList(){
     stop(); current = null; $("player").hidden = true; $("title").textContent = "TV";
@@ -81,8 +123,18 @@
   function play(id){
     current = id; $("channels").hidden = true; $("player").hidden = false; $("paused").hidden = true;
     $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus();
+    var vv = $("video"); vv.volume = vol;
+    playWebRTC(id, vv).catch(function(err){
+      // fall back to HLS if WebRTC can't connect
+      if (current !== id) return;
+      stopRtc(); vv.srcObject = null; status("Trying HLS…");
+      playHls(id);
+    });
+  }
+  function playHls(id){
     ha.send({ type:"camera/stream", entity_id:id, format:"hls" }).then(function(r){
-      var url = GlassesHA.HA_URL + r.url, v = $("video");
+      // /api/glasses_hls/ is the CORS-enabled proxy of HA's /api/hls/ (custom_components/glasses_hls)
+      var url = GlassesHA.HA_URL + r.url.replace("/api/hls/", "/api/glasses_hls/"), v = $("video");
       v.volume = vol;
       v.onplaying = function(){ status("● Live", "live"); };
       v.onwaiting = function(){ status("Buffering…"); };
