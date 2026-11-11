@@ -144,7 +144,8 @@
       function viaHlsJs(){ return loadHlsJs().then(function(Hls){
         if (!Hls.isSupported()) throw new Error("this browser can't play HLS");
         // generous timeouts: a freshly started HA stream can take a while to produce its first segments
-        hls = new Hls({ lowLatencyMode:false, backBufferLength:30,
+        // HA only keeps a short live playlist (10s segments), so start one segment from the live edge instead of hls.js's default three
+        hls = new Hls({ lowLatencyMode:false, backBufferLength:30, liveSyncDurationCount:1, liveMaxLatencyDurationCount:4, maxBufferLength:20,
           manifestLoadingTimeOut:30000, manifestLoadingMaxRetry:6, manifestLoadingRetryDelay:1500,
           levelLoadingTimeOut:30000, levelLoadingMaxRetry:8, levelLoadingRetryDelay:1500,
           fragLoadingTimeOut:60000, fragLoadingMaxRetry:8, fragLoadingRetryDelay:1500 });
