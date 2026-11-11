@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "Mail",
+  "description": "practitionermatch info@ and adrian@ inboxes",
+  "appearance": {
+    "theme_color": "#7CC4FF",
+    "icon": {
+      "src": "../../icons/mail-mono-512.png",
+      "type": "monochrome"
+    }
+  }
+}
