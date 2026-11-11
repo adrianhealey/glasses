@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Read the practitionermatch info@ and adrian@ inboxes">
+<meta name="mrbd-web-app-capable" content="yes">
+<meta name="application-name" content="Mail">
+<meta name="theme-color" content="#000000">
+<title>Mail</title>
+<link rel="icon" type="image/png" sizes="192x192" href="../icons/mail-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/mail-apple-180.png">
+<style>
+  [hidden]{display:none!important}
+  :root{--focus:#5ad1ff;--dim:#8a8a8a;--accent:#7cc4ff}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000;color:#fff;font-family:system-ui,-apple-system,Roboto,sans-serif;height:100%}
+  body{display:flex;flex-direction:column;padding:12px 14px 8px;overflow:hidden}
+  header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  h1{font-size:24px;font-weight:600}
+  #status{font-size:17px;color:var(--dim)} #status.err{color:#ff6b6b}
+  button{font:inherit;color:#fff;background:#141414;border:3px solid transparent;border-radius:16px;text-align:left}
+  button:focus{outline:none;border-color:var(--focus);background:#1d1d1d}
+  #tabs{display:flex;gap:8px;margin-bottom:8px}
+  #tabs button{flex:1;padding:10px 12px;font-size:20px;text-align:center}
+  #tabs button.sel{background:#22303a}
+  .count{color:var(--accent);font-weight:700}
+  main{flex:1;overflow-y:auto;min-height:0}
+  ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+  button.msg{width:100%;padding:10px 14px;display:block}
+  .row1{display:flex;gap:10px;align-items:baseline}
+  .from{flex:1;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ddd}
+  .when{font-size:16px;color:var(--dim);flex:none}
+  .subj{font-size:21px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .unread .from,.unread .subj{color:#fff;font-weight:700}
+  .unread .from::before{content:"● ";color:var(--accent)}
+  #reader{display:flex;flex-direction:column;min-height:0;flex:1}
+  #rhead{padding:2px 2px 8px;border-bottom:1px solid #333;margin-bottom:8px}
+  #rsubj{font-size:22px;font-weight:700;line-height:1.2}
+  #rmeta{font-size:17px;color:var(--dim);margin-top:4px}
+  #rbody{flex:1;overflow-y:auto;font-size:20px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;padding:4px 2px;min-height:0}
+  #rnav{display:flex;gap:8px;margin-top:8px}
+  #rnav button{flex:1;padding:10px;font-size:19px;text-align:center}
+  .note{font-size:20px;color:var(--dim);line-height:1.35;padding:6px 2px}
+</style>
+</head>
+<body>
+<header><h1 id="title">Mail</h1><span id="status">Connecting…</span></header>
+<div id="listView" hidden>
+  <div id="tabs"><button data-mb="info">Info <span class="count" id="c-info"></span></button><button data-mb="adrian">Adrian <span class="count" id="c-adrian"></span></button></div>
+</div>
+<main id="listMain" hidden><ul id="list"></ul></main>
+<div id="reader" hidden>
+  <div id="rhead"><div id="rsubj"></div><div id="rmeta"></div></div>
+  <div id="rbody"></div>
+  <div id="rnav"><button id="up">▲ Up</button><button id="down">▼ Down</button></div>
+</div>
+<div id="info" class="note" hidden></div>
+<script src="../shared.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var ha = null, mailbox = "info", lists = {}, refreshTimer = null, lastFocus = null;
+  try { mailbox = localStorage.getItem("pm_mailbox") || "info"; } catch (e) {}
+  function status(t, err){ $("status").textContent = t; $("status").className = err ? "err" : ""; }
+  function info(h){ $("info").hidden = !h; $("info").innerHTML = h || ""; }
+  function esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+  function when(iso){
+    var d = new Date(iso), now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+    var y = new Date(now); y.setDate(now.getDate() - 1);
+    if (d.toDateString() === y.toDateString()) return "Yesterday";
+    return d.toLocaleDateString([], { day:"numeric", month:"short" });
+  }
+  function call(service, data){
+    return ha.send({ type:"call_service", domain:"pyscript", service:service, service_data:data || {}, return_response:true })
+      .then(function (r) { var resp = r && r.response; if (!resp) throw new Error("no response"); if (resp.error) throw new Error(resp.error); return resp; });
+  }
+
+  function showList(){
+    $("reader").hidden = true; $("listView").hidden = false; $("listMain").hidden = false; $("title").textContent = "Mail";
+    [].forEach.call(document.querySelectorAll("#tabs button"), function(b){ b.classList.toggle("sel", b.dataset.mb === mailbox); });
+    renderList();
+    var f = lastFocus && document.querySelector('[data-id="' + lastFocus + '"]');
+    (f || document.querySelector("#list button") || document.querySelector('#tabs button[data-mb="' + mailbox + '"]')).focus();
+  }
+  function renderList(){
+    var msgs = lists[mailbox];
+    if (!msgs) { $("list").innerHTML = '<li class="note">Loading…</li>'; return; }
+    if (!msgs.length) { $("list").innerHTML = '<li class="note">Inbox is empty.</li>'; return; }
+    $("list").innerHTML = msgs.map(function(m){
+      return '<li><button class="msg' + (m.read ? "" : " unread") + '" data-id="' + esc(m.id) + '">' +
+        '<div class="row1"><span class="from">' + esc(m.from.name) + '</span><span class="when">' + esc(when(m.received)) + (m.attachments ? " 📎" : "") + '</span></div>' +
+        '<div class="subj">' + esc(m.subject) + '</div></button></li>';
+    }).join("");
+    [].forEach.call(document.querySelectorAll("#list button"), function(b){ b.addEventListener("click", function(){ openMsg(b.dataset.id); }); });
+  }
+  function loadSummary(){
+    return call("pm_mail_summary").then(function(r){
+      ["info","adrian"].forEach(function(k){ var u = r.mailboxes[k] && r.mailboxes[k].unread; $("c-" + k).textContent = u ? "(" + u + ")" : ""; });
+    }).catch(function(){});
+  }
+  function loadList(){
+    var mb = mailbox;
+    status("Updating…");
+    return call("pm_mail_list", { mailbox:mb, top:25 }).then(function(r){
+      lists[mb] = r.messages; info(""); status("Ready");
+      if (mb === mailbox && !$("listView").hidden) { var keep = document.activeElement && document.activeElement.dataset.id; renderList();
+        var f = keep && document.querySelector('[data-id="' + keep + '"]'); if (f) f.focus(); }
+    }).catch(function(e){ status("Error", true); info(esc(e.message)); });
+  }
+  function refresh(){ clearTimeout(refreshTimer); if (document.hidden || !ha) return;
+    Promise.all([loadSummary(), loadList()]).then(function(){ refreshTimer = setTimeout(refresh, 60000); }); }
+
+  function openMsg(id){
+    lastFocus = id;
+    $("listView").hidden = true; $("listMain").hidden = true; $("reader").hidden = false;
+    $("rsubj").textContent = "Loading…"; $("rmeta").textContent = ""; $("rbody").textContent = "";
+    history.pushState({ msg:id }, "", location.pathname + location.search + "#msg");
+    $("down").focus();
+    call("pm_mail_get", { mailbox:mailbox, id:id }).then(function(m){
+      $("rsubj").textContent = m.subject;
+      $("rmeta").textContent = (m.from.name || m.from.address) + " · " + new Date(m.received).toLocaleString([], { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) + (m.attachments ? " · 📎 attachments" : "");
+      $("rbody").textContent = (m.body || "").replace(/\n{3,}/g, "\n\n").trim();
+      $("rbody").scrollTop = 0;
+    }).catch(function(e){ $("rsubj").textContent = "Couldn't open message"; $("rbody").textContent = e.message; });
+  }
+  function page(dir){ var b = $("rbody"); b.scrollBy({ top: dir * (b.clientHeight - 40), behavior:"smooth" }); }
+  $("up").addEventListener("click", function(){ page(-1); });
+  $("down").addEventListener("click", function(){ page(1); });
+  window.addEventListener("popstate", function(){ if (!$("reader").hidden) showList(); });
+  document.addEventListener("keydown", function(e){ if ((e.key === "Escape" || e.key === "Backspace") && !$("reader").hidden) { e.preventDefault(); history.back(); } });
+
+  [].forEach.call(document.querySelectorAll("#tabs button"), function(b){
+    b.addEventListener("click", function(){
+      mailbox = b.dataset.mb; try { localStorage.setItem("pm_mailbox", mailbox); } catch (e) {}
+      lastFocus = null; showList(); loadList();
+    });
+  });
+
+  function ready(api){ ha = api; showList(); refresh(); }
+  ha = GlassesHA.connect({
+    status: status, ready: ready,
+    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/mail/#token=YOUR_TOKEN</b>"); },
+    badToken: function(){ status("Token rejected", true); info("Home Assistant rejected the access token. Re-add the app with a valid token."); }
+  });
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden && ha) { ha.reopen(); refresh(); } });
+})();
+</script>
+</body>
+</html>
