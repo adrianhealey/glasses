@@ -70,6 +70,14 @@
       document.head.appendChild(s);
     });
   }
+  // Start playback; if the browser blocks autoplay with sound, start muted and offer Unmute.
+  function startPlay(v){
+    return v.play().then(function(){ $("paused").hidden = true; }).catch(function(){
+      v.muted = true; $("mute").textContent = "Unmute";
+      return v.play().then(function(){ $("paused").hidden = true; info("Playing muted – select <b>Unmute</b> for sound."); })
+        .catch(function(){ $("paused").textContent = "Select the picture to play"; $("paused").hidden = false; status("Ready"); });
+    });
+  }
   function play(id){
     current = id; $("channels").hidden = true; $("player").hidden = false; $("paused").hidden = true;
     $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus();
@@ -84,12 +92,15 @@
         hls = new Hls({ lowLatencyMode:false, backBufferLength:30 });
         hls.on(Hls.Events.ERROR, function(_, d){ if (d.fatal) { status("Stream error", true); info("Stream problem: " + esc(d.details)); } });
         hls.loadSource(url); hls.attachMedia(v);
-        hls.on(Hls.Events.MANIFEST_PARSED, function(){ v.play().catch(function(){ v.muted = true; v.play(); }); });
+        hls.on(Hls.Events.MANIFEST_PARSED, function(){ startPlay(v); });
       }); }
       if (v.canPlayType("application/vnd.apple.mpegurl")) {
         // native HLS first; if the built-in player rejects it, fall back to hls.js
         v.onerror = function(){ v.onerror = function(){ status("Stream error", true); }; v.removeAttribute("src"); viaHlsJs().catch(function(e){ status("Error", true); info(esc(e.message)); }); };
-        v.src = url; return v.play().catch(function(){});
+        v.src = url;
+        // if the built-in player is still stuck buffering after 12s, switch to hls.js
+        setTimeout(function(){ if (current === id && !hls && v.readyState < 3) { v.onerror = null; v.removeAttribute("src"); v.load(); status("Retrying…"); viaHlsJs().catch(function(e){ status("Error", true); info(esc(e.message)); }); } }, 12000);
+        return startPlay(v);
       }
       return viaHlsJs();
     }).catch(function(e){ status("Error", true); info("Couldn't start " + esc(names[id] || id) + ": " + esc(e && (e.message || e.code) || e)); });
@@ -97,13 +108,13 @@
 
   $("screen").addEventListener("click", function(){
     var v = $("video");
-    if (v.paused) { v.play(); $("paused").hidden = true; } else { v.pause(); $("paused").hidden = false; status("Paused"); }
+    if (v.paused) { v.play(); $("paused").hidden = true; status("● Live", "live"); } else { v.pause(); $("paused").hidden = false; status("Paused"); }
   });
   function setVol(d){ var v = $("video"); vol = Math.max(0, Math.min(1, Math.round((vol + d) * 10) / 10)); v.volume = vol; v.muted = false;
     $("mute").textContent = "Mute"; status("Volume " + Math.round(vol * 100) + "%"); try { localStorage.setItem("tv_vol", vol); } catch (e) {} }
   $("volup").addEventListener("click", function(){ setVol(0.1); });
   $("voldown").addEventListener("click", function(){ setVol(-0.1); });
-  $("mute").addEventListener("click", function(){ var v = $("video"); v.muted = !v.muted; $("mute").textContent = v.muted ? "Unmute" : "Mute"; });
+  $("mute").addEventListener("click", function(){ var v = $("video"); v.muted = !v.muted; $("mute").textContent = v.muted ? "Unmute" : "Mute"; if (!v.muted) info(""); });
   $("list").addEventListener("click", function(){ if (chans.length) showList(); });
   document.addEventListener("visibilitychange", function(){
     if (document.hidden) stop(); else if (ha) { ha.reopen(); if (current) play(current); }
