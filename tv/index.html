@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Watch IPTV channels through Home Assistant">
+<meta name="mrbd-web-app-capable" content="yes">
+<meta name="application-name" content="TV">
+<meta name="theme-color" content="#000000">
+<title>TV</title>
+<link rel="icon" type="image/png" sizes="192x192" href="../icons/tv-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/tv-apple-180.png">
+<style>
+  [hidden]{display:none!important}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000;color:#fff;font-family:system-ui,-apple-system,Roboto,sans-serif;height:100%;overflow:hidden}
+  body{display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:baseline;padding:10px 14px 6px}
+  h1{font-size:22px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #status{font-size:17px;color:#8a8a8a;flex:none;margin-left:10px} #status.live{color:#ff5a5a} #status.err{color:#ff6b6b}
+  button{font:inherit;color:#fff;background:#141414;border:3px solid transparent;border-radius:16px}
+  button:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
+  #channels{flex:1;overflow-y:auto;padding:0 14px 10px;list-style:none;display:flex;flex-direction:column;gap:8px}
+  #channels button{width:100%;padding:16px 18px;font-size:24px;text-align:left}
+  #player{flex:1;display:flex;flex-direction:column;min-height:0}
+  #screen{flex:1;width:100%;padding:0;background:none;border-radius:10px;min-height:0;position:relative;display:flex;align-items:center;justify-content:center}
+  video{max-width:100%;max-height:100%;width:100%;display:block;background:#000}
+  #paused{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:20px;text-shadow:0 0 6px #000}
+  #controls{display:flex;gap:8px;padding:6px 10px 8px}
+  #controls button{flex:1;padding:10px;font-size:19px}
+  .note{font-size:20px;color:#8a8a8a;line-height:1.35;padding:6px 14px}
+</style>
+</head>
+<body>
+<header><h1 id="title">TV</h1><span id="status">Connecting…</span></header>
+<ul id="channels" hidden></ul>
+<div id="player" hidden>
+  <button id="screen" aria-label="Video, select to pause or play"><video id="video" playsinline></video><span id="paused" hidden>Paused · select to play</span></button>
+  <div id="controls"><button id="voldown">🔉 −</button><button id="volup">🔊 +</button><button id="mute">Mute</button><button id="list">Channels</button></div>
+</div>
+<div id="info" class="note" hidden></div>
+<script src="../shared.js"></script>
+<script>
+(function () {
+  var LABEL = "glasses_tv";     // HA label id: cameras carrying the "Glasses TV" label are listed as channels
+  var HLSJS = "https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js";
+  var $ = function (id) { return document.getElementById(id); };
+  var ha = null, chans = [], names = {}, current = null, hls = null, vol = 0.8;
+  try { vol = parseFloat(localStorage.getItem("tv_vol") || "0.8"); } catch (e) {}
+  function status(t, cls){ $("status").textContent = t; $("status").className = cls === true ? "err" : (cls || ""); }
+  function info(h){ $("info").hidden = !h; $("info").innerHTML = h || ""; }
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+
+  function stop(){
+    if (hls) { hls.destroy(); hls = null; }
+    var v = $("video"); v.pause(); v.removeAttribute("src"); v.load();
+  }
+  function showList(){
+    stop(); current = null; $("player").hidden = true; $("title").textContent = "TV";
+    $("channels").hidden = false;
+    $("channels").innerHTML = chans.map(function(id){ return '<li><button data-id="' + id + '">' + esc(names[id] || id) + '</button></li>'; }).join("");
+    [].forEach.call(document.querySelectorAll("#channels button"), function(b){ b.addEventListener("click", function(){ play(b.dataset.id); }); });
+    var f = document.querySelector("#channels button"); if (f) f.focus();
+    status(chans.length ? "Pick a channel" : "Ready");
+  }
+  function loadHlsJs(){
+    return new Promise(function(res, rej){
+      if (window.Hls) return res(window.Hls);
+      var s = document.createElement("script"); s.src = HLSJS; s.onload = function(){ res(window.Hls); }; s.onerror = function(){ rej(new Error("couldn't load player")); };
+      document.head.appendChild(s);
+    });
+  }
+  function play(id){
+    current = id; $("channels").hidden = true; $("player").hidden = false; $("paused").hidden = true;
+    $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus();
+    ha.send({ type:"camera/stream", entity_id:id, format:"hls" }).then(function(r){
+      var url = GlassesHA.HA_URL + r.url, v = $("video");
+      v.volume = vol;
+      v.onplaying = function(){ status("● Live", "live"); };
+      v.onwaiting = function(){ status("Buffering…"); };
+      v.onerror = function(){ status("Stream error", true); };
+      function viaHlsJs(){ return loadHlsJs().then(function(Hls){
+        if (!Hls.isSupported()) throw new Error("this browser can't play HLS");
+        hls = new Hls({ lowLatencyMode:false, backBufferLength:30 });
+        hls.on(Hls.Events.ERROR, function(_, d){ if (d.fatal) { status("Stream error", true); info("Stream problem: " + esc(d.details)); } });
+        hls.loadSource(url); hls.attachMedia(v);
+        hls.on(Hls.Events.MANIFEST_PARSED, function(){ v.play().catch(function(){ v.muted = true; v.play(); }); });
+      }); }
+      if (v.canPlayType("application/vnd.apple.mpegurl")) {
+        // native HLS first; if the built-in player rejects it, fall back to hls.js
+        v.onerror = function(){ v.onerror = function(){ status("Stream error", true); }; v.removeAttribute("src"); viaHlsJs().catch(function(e){ status("Error", true); info(esc(e.message)); }); };
+        v.src = url; return v.play().catch(function(){});
+      }
+      return viaHlsJs();
+    }).catch(function(e){ status("Error", true); info("Couldn't start " + esc(names[id] || id) + ": " + esc(e && (e.message || e.code) || e)); });
+  }
+
+  $("screen").addEventListener("click", function(){
+    var v = $("video");
+    if (v.paused) { v.play(); $("paused").hidden = true; } else { v.pause(); $("paused").hidden = false; status("Paused"); }
+  });
+  function setVol(d){ var v = $("video"); vol = Math.max(0, Math.min(1, Math.round((vol + d) * 10) / 10)); v.volume = vol; v.muted = false;
+    $("mute").textContent = "Mute"; status("Volume " + Math.round(vol * 100) + "%"); try { localStorage.setItem("tv_vol", vol); } catch (e) {} }
+  $("volup").addEventListener("click", function(){ setVol(0.1); });
+  $("voldown").addEventListener("click", function(){ setVol(-0.1); });
+  $("mute").addEventListener("click", function(){ var v = $("video"); v.muted = !v.muted; $("mute").textContent = v.muted ? "Unmute" : "Mute"; });
+  $("list").addEventListener("click", function(){ if (chans.length) showList(); });
+  document.addEventListener("visibilitychange", function(){
+    if (document.hidden) stop(); else if (ha) { ha.reopen(); if (current) play(current); }
+  });
+
+  function ready(api){
+    ha = api;
+    api.send({ type:"config/entity_registry/list_for_display" }).then(function(reg){
+      chans = reg.entities.filter(function(e){ return e.ei.indexOf("camera.") === 0 && (e.lb || []).indexOf(LABEL) >= 0; }).map(function(e){ return e.ei; });
+      if (!chans.length) { status("Ready"); info("No channels yet. In Home Assistant, add the <b>Glasses TV</b> label to the IPTV camera(s) you want here."); return; }
+      var started = false;
+      api.subscribe({ type:"subscribe_entities", entity_ids:chans }, function(ev){
+        if (!ev.a || started) return;
+        started = true;
+        Object.keys(ev.a).forEach(function(k){ names[k] = (ev.a[k].a && ev.a[k].a.friendly_name) || k; });
+        chans.sort(function(a, b){ return (names[a] || a).localeCompare(names[b] || b); });
+        info("");
+        if (current) play(current); else if (chans.length === 1) play(chans[0]); else showList();
+      });
+    }).catch(function(e){ status("Error", true); info(esc(e && e.message || e)); });
+  }
+  ha = GlassesHA.connect({
+    status: status, ready: ready,
+    noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/tv/?token=YOUR_TOKEN</b>"); },
+    badToken: function(){ status("Token rejected", true); info("Home Assistant rejected the access token. Re-add the app with a valid token."); }
+  });
+})();
+</script>
+</body>
+</html>
