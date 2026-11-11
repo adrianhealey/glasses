@@ -93,7 +93,10 @@
     // the previous channel's stream before it starts this one, so switching uses one connection.
     playHls(id);
   }
+  var restarts = 0, restartsReset = null;
   function playHls(id){
+    clearTimeout(restartsReset); restartsReset = setTimeout(function(){ restarts = 0; }, 60000);
+    if (hls) { hls.destroy(); hls = null; }
     ha.stream(id).then(function(url){
       // url is HA's /api/glasses_hls/ proxy of /api/hls/ (custom_components/glasses_hls), which allows cross-site playback
       if (current !== id) return;
@@ -106,8 +109,8 @@
         if (!Hls.isSupported()) throw new Error("this browser can't play HLS");
         // generous timeouts: a freshly started HA stream can take a while to produce its first segments
         // The glasses' link through the phone is bursty, so keep a deeper cushion: start two segments (~15s) behind live,
-        // never jump forward to catch up unless 10 segments behind, and buffer up to 40s ahead.
-        hls = new Hls({ lowLatencyMode:false, backBufferLength:20, liveSyncDurationCount:2, liveMaxLatencyDurationCount:10, maxBufferLength:40, maxMaxBufferLength:60,
+        // only jump forward to catch up if 5 segments behind (HA drops older ones), and buffer up to 40s ahead.
+        hls = new Hls({ lowLatencyMode:false, backBufferLength:20, liveSyncDurationCount:2, liveMaxLatencyDurationCount:5, maxBufferLength:40, maxMaxBufferLength:60,
           abrEwmaDefaultEstimate:1500000,
           manifestLoadingTimeOut:30000, manifestLoadingMaxRetry:6, manifestLoadingRetryDelay:1500,
           levelLoadingTimeOut:30000, levelLoadingMaxRetry:8, levelLoadingRetryDelay:1500,
@@ -116,6 +119,8 @@
         hls.on(Hls.Events.ERROR, function(_, d){
           if (!d.fatal) return;
           var code = d.response && d.response.code;
+          // 404: Home Assistant restarted the stream (new segment numbers), so ask for it again and start over
+          if (code === 404 && restarts < 3) { restarts++; status("Reconnecting…"); setTimeout(function(){ if (current === id) playHls(id); }, 1500); return; }
           if (recoveries < 3 && d.type === Hls.ErrorTypes.NETWORK_ERROR) { recoveries++; status("Reconnecting…"); setTimeout(function(){ if (hls) hls.startLoad(); }, 2000); return; }
           if (recoveries < 3 && d.type === Hls.ErrorTypes.MEDIA_ERROR) { recoveries++; hls.recoverMediaError(); return; }
           status("Stream error", true); info("Stream problem: " + esc(d.details) + (code !== undefined ? " (" + code + ")" : ""));
