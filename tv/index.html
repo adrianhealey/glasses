@@ -124,12 +124,9 @@
     current = id; $("channels").hidden = true; $("player").hidden = false; $("paused").hidden = true;
     $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus();
     var vv = $("video"); vv.volume = vol;
-    playWebRTC(id, vv).catch(function(err){
-      // fall back to HLS if WebRTC can't connect
-      if (current !== id) return;
-      stopRtc(); vv.srcObject = null; status("Trying HLS…");
-      playHls(id);
-    });
+    // HLS only: a WebRTC attempt makes go2rtc open a second connection to the IPTV provider,
+    // which (on single-connection IPTV plans) kicks off the stream HA is already pulling.
+    playHls(id);
   }
   function playHls(id){
     ha.send({ type:"camera/stream", entity_id:id, format:"hls" }).then(function(r){
@@ -141,8 +138,19 @@
       v.onerror = function(){ status("Stream error", true); };
       function viaHlsJs(){ return loadHlsJs().then(function(Hls){
         if (!Hls.isSupported()) throw new Error("this browser can't play HLS");
-        hls = new Hls({ lowLatencyMode:false, backBufferLength:30 });
-        hls.on(Hls.Events.ERROR, function(_, d){ if (d.fatal) { status("Stream error", true); info("Stream problem: " + esc(d.details)); } });
+        // generous timeouts: a freshly started HA stream can take a while to produce its first segments
+        hls = new Hls({ lowLatencyMode:false, backBufferLength:30,
+          manifestLoadingTimeOut:30000, manifestLoadingMaxRetry:6, manifestLoadingRetryDelay:1500,
+          levelLoadingTimeOut:30000, levelLoadingMaxRetry:8, levelLoadingRetryDelay:1500,
+          fragLoadingTimeOut:60000, fragLoadingMaxRetry:8, fragLoadingRetryDelay:1500 });
+        var recoveries = 0;
+        hls.on(Hls.Events.ERROR, function(_, d){
+          if (!d.fatal) return;
+          var code = d.response && d.response.code;
+          if (recoveries < 3 && d.type === Hls.ErrorTypes.NETWORK_ERROR) { recoveries++; status("Reconnecting…"); setTimeout(function(){ if (hls) hls.startLoad(); }, 2000); return; }
+          if (recoveries < 3 && d.type === Hls.ErrorTypes.MEDIA_ERROR) { recoveries++; hls.recoverMediaError(); return; }
+          status("Stream error", true); info("Stream problem: " + esc(d.details) + (code !== undefined ? " (" + code + ")" : ""));
+        });
         hls.loadSource(url); hls.attachMedia(v);
         hls.on(Hls.Events.MANIFEST_PARSED, function(){ startPlay(v); });
       }); }
