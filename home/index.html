@@ -34,7 +34,7 @@
 <body>
 <header><h1>Home</h1><span id="status">Connecting…</span></header>
 <main><ul id="list"></ul><div id="info" class="msg" hidden></div></main>
-<script src="../shared.js?v=2"></script>
+<script src="../shared.js?v=4"></script>
 <script>
 (function () {
   var LABEL = "glasses";   // HA label id: entities carrying it appear here
@@ -50,7 +50,15 @@
     noToken: function(){ status("Not set up", true); info("This app needs your Home Assistant access token on the end of its link:<br><b>…/home/?token=YOUR_TOKEN</b>"); },
     badToken: function(){ status("Token rejected", true); $list.innerHTML = ""; info("Home Assistant rejected the access token. Re-add the app with a valid token on the link."); }
   };
-  function failed(e){ var t = ha.describe(e, H); if (t) status(t, true); return t; }
+  var diagAt = 0;
+  function failed(e){
+    var t = ha.describe(e, H); if (t) status(t, true);
+    if (t === "Offline" && Date.now() - diagAt > 20000) {   // show why, so a dead phone link and an unreachable HA can be told apart
+      diagAt = Date.now();
+      ha.diagnose(e).then(function(d){ if ($status.textContent === "Offline") info('<span style="font-size:17px">' + d + '</span>'); });
+    }
+    return t;
+  }
 
   function render(){
     ents.sort(function(a,b){ return (names[a]||a).localeCompare(names[b]||b); });
