@@ -39,7 +39,7 @@
   <div id="controls"><button id="voldown">🔉 −</button><button id="volup">🔊 +</button><button id="mute">Mute</button><button id="list">Channels</button></div>
 </div>
 <div id="info" class="note" hidden></div>
-<script src="../shared.js?v=3"></script>
+<script src="../shared.js?v=5"></script>
 <script>
 (function () {
   var LABEL = "glasses_tv";     // HA label id: cameras carrying the "Glasses TV" label are listed as channels
@@ -132,7 +132,7 @@
       return viaHlsJs();
     }).catch(function(e){
       var t = ha.describe(e, H); if (t === null) return;
-      if (t === "Offline") { status("Offline", true); setTimeout(function(){ if (current === id && !document.hidden) playHls(id); }, 4000); return; }
+      if (t === "Offline") { status("Offline", true); ha.explain(e, $("info"), function(){ return $("status").textContent === "Offline"; }); setTimeout(function(){ if (current === id && !document.hidden) playHls(id); }, 4000); return; }
       status("Error", true); info("Couldn't start " + esc(names[id] || id) + ": " + esc(e && (e.message || e.code) || e));
     });
   }
@@ -164,7 +164,7 @@
       chans.sort(function(a, b){ return (names[a] || a).localeCompare(names[b] || b); });
       info("");
       if (current) play(current); else if (chans.length === 1) play(chans[0]); else showList();
-    }).catch(function(e){ var t = ha.describe(e, H); if (t === null) return; status(t, true); if (t !== "Offline") info(esc(e.message)); setTimeout(function(){ if (!chans.length && !document.hidden) load(); }, 4000); });
+    }).catch(function(e){ var t = ha.describe(e, H); if (t === null) return; status(t, true); if (t !== "Offline") info(esc(e.message)); else ha.explain(e, $("info"), function(){ return $("status").textContent === "Offline"; }); setTimeout(function(){ if (!chans.length && !document.hidden) load(); }, 4000); });
   }
   // leaving the app: close the channel now rather than after HA's 5-minute idle timeout
   window.addEventListener("pagehide", function(){ stop(); ha.stopStream(current); });
