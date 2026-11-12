@@ -3,6 +3,8 @@
 // websocket open, but ordinary requests get through fine.
 // The access token comes from the app link (…/?token=XXXX) so nothing has to be typed on the glasses.
 //
+// v12: Tailscale only (Tailscale Funnel makes homeassistant.tail0892f8.ts.net reachable from anywhere,
+//      no Tailscale needed on the phone). Nabu Casa is no longer used.
 // v11:
 // - "Simple" requests: the token goes in the URL (?t=) instead of an Authorization header, so the
 //   browser no longer sends an extra CORS preflight request before every real one (the glasses_hls
@@ -11,14 +13,11 @@
 //   hanging on the glasses' connection. Coming back carries on; after 45 s away the app restarts fresh.
 // - A ✕ button in the header closes the app properly: all requests, video and pictures stop.
 (function () {
-  var HA_URL = "https://g2khwjqw9m6bm8c8ipdy970d7nmv28a1.ui.nabu.casa";   // Nabu Casa remote access
-  var TS_URL = "https://homeassistant.tail0892f8.ts.net";                   // Tailscale (needs Tailscale on the phone)
-  var URLS = [HA_URL, TS_URL], NAMES = ["Nabu Casa", "Tailscale"];
-  var KEY = "ha_glasses_llat", BASE_KEY = "ha_glasses_route", TV_KEY = "glasses_tv_live";
+  var HA_URL = "https://homeassistant.tail0892f8.ts.net";   // Home Assistant via Tailscale Funnel
+  var KEY = "ha_glasses_llat", TV_KEY = "glasses_tv_live";
   var AWAY_RESTART = 45000;   // away longer than this: start afresh on return
-  var route = 0;
-  try { route = parseInt(localStorage.getItem(BASE_KEY) || "0", 10) === 1 ? 1 : 0; } catch (e) {}
-  function base() { return URLS[route]; }
+  try { localStorage.removeItem("ha_glasses_route"); } catch (e) {}
+  function base() { return HA_URL; }
   var isTv = /\/tv\//.test(location.pathname);
 
   function readToken() {
@@ -43,23 +42,13 @@
     list.forEach(function (c) { c.ours = true; try { c.abort(); } catch (e) {} });
   }
 
-  // Try the route that last worked; if it doesn't answer, try the other one and remember whichever works.
   function rest(method, path, body, timeoutMs) {
     if (closed || away) return NEVER();
-    var first = route;
-    return attempt(first, method, path, body, timeoutMs).catch(function (e) {
-      if (!e || e.code !== "offline") throw e;
-      if (closed || away) return NEVER();
-      var other = 1 - first;
-      return attempt(other, method, path, body, timeoutMs).then(function (r) {
-        route = other; try { localStorage.setItem(BASE_KEY, String(other)); } catch (x) {}
-        return r;
-      }, function (e2) { e2.why = NAMES[first] + ": " + (e.why || "failed") + ", " + NAMES[other] + ": " + (e2.why || "failed"); throw e2; });
-    });
+    return attempt(method, path, body, timeoutMs);
   }
 
   // fetch with a timeout; 401 becomes code "auth", anything network-ish becomes code "offline"
-  function attempt(r, method, path, body, timeoutMs) {
+  function attempt(method, path, body, timeoutMs) {
     if (!token) return Promise.reject(err("no token", "notoken"));
     var ctl = window.AbortController ? new AbortController() : null;
     if (ctl) inflight.push(ctl);
@@ -69,7 +58,7 @@
     var opts = { method: method, cache: "no-store", credentials: "omit" };
     if (ctl) opts.signal = ctl.signal;
     if (body !== undefined) { opts.headers = { "Content-Type": "application/json" }; opts.body = JSON.stringify(body); }
-    return fetch(URLS[r] + withToken(path), opts).then(function (resp) {
+    return fetch(HA_URL + withToken(path), opts).then(function (resp) {
       clearTimeout(t); done();
       if (resp.status === 401) throw err("Home Assistant rejected the access token", "auth");
       return resp.text().then(function (txt) {
@@ -95,9 +84,8 @@
   }
   function diagnose(e) {
     return Promise.all([probe("https://www.google.com/generate_204?x=" + Date.now(), 8000),
-                        probe(HA_URL + "/manifest.json?x=" + Date.now(), 12000),
-                        probe(TS_URL + "/manifest.json?x=" + Date.now(), 12000)]).then(function (r) {
-      return "Internet: " + r[0] + " · Nabu Casa: " + r[1] + " · Tailscale: " + r[2] + (e && e.why ? " · last: " + e.why : "") +
+                        probe(HA_URL + "/manifest.json?x=" + Date.now(), 12000)]).then(function (r) {
+      return "Internet: " + r[0] + " · Home Assistant: " + r[1] + (e && e.why ? " · last: " + e.why : "") +
         " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     });
   }
@@ -113,9 +101,8 @@
   var api = {
     HA_URL: HA_URL,
     base: base,                                   // the route currently in use (for picture and video links)
-    // pictures/video failing on this route: switch to the other one (and remember it)
-    otherRoute: function () { route = 1 - route; try { localStorage.setItem(BASE_KEY, String(route)); } catch (x) {} return base(); },
-    routeName: function () { return NAMES[route]; },
+    otherRoute: function () { return base(); },   // single route now (kept so older app code still works)
+    routeName: function () { return "Tailscale"; },
     token: token,
     rest: rest,
     diagnose: diagnose,
