@@ -11,13 +11,21 @@
 <link rel="icon" type="image/png" sizes="192x192" href="../icons/network-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="../icons/network-512.png">
 <link rel="apple-touch-icon" sizes="180x180" href="../icons/network-180.png">
-<style>html,body{margin:0;height:100%;background:#0b2545;color:#fff;font-family:system-ui,Roboto,sans-serif;display:flex;align-items:center;justify-content:center;font-size:22px}</style>
+<style>
+  html,body{margin:0;height:100%;background:#0b2545;color:#fff;font-family:system-ui,Roboto,sans-serif}
+  body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+  a{display:block;font-size:28px;font-weight:600;color:#fff;text-decoration:none;background:#13335e;border:3px solid #5ad1ff;border-radius:18px;padding:18px 34px}
+  a:focus{outline:none;background:#1b4680}
+  p{font-size:18px;color:#9fb3cc;margin:0}
+</style>
 </head>
 <body>
-<p>Opening LinkedIn…</p>
+<a id="go" href="https://www.linkedin.com/feed/">Open LinkedIn</a>
+<p>Select to open your LinkedIn feed</p>
 <script>
-  // Launch page so the glasses show our own icon; it simply opens LinkedIn's site.
-  location.replace("https://www.linkedin.com/feed/");
+  // Launch page so the glasses show our own icon. The glasses only allow leaving for another
+  // website when you select a link yourself, so this is a button rather than an automatic jump.
+  document.getElementById("go").focus();
 </script>
 </body>
 </html>
