@@ -32,6 +32,12 @@
   button.room .dot{border-radius:10px}
   button.back{width:100%;padding:10px 18px;border-radius:16px;border:3px solid transparent;background:#101820;color:#bfe3ff;font:inherit;font-size:22px;text-align:left;margin-bottom:10px}
   button.back:focus{outline:none;border-color:var(--focus)}
+  /* thermostat */
+  .heat .dot{background:#ff8a3d;border-color:#ff8a3d;box-shadow:0 0 14px #ff8a3d}
+  .clim{display:flex;align-items:baseline;justify-content:space-between;padding:6px 6px 10px}
+  .clim .now{font-size:46px;font-weight:600} .clim .now small{font-size:20px;color:var(--dim);font-weight:400;display:block}
+  .clim .set{font-size:22px;color:var(--dim);text-align:right} .clim .set b{display:block;font-size:46px;color:#ff8a3d}
+  .row2{display:flex;gap:10px} .row2 button.ent{justify-content:center;font-size:26px;min-height:64px}
 </style>
 </head>
 <body>
@@ -49,13 +55,15 @@
     "switch.media_wall": "Living Room",
     "input_boolean.fire": "Living Room",
     "switch.blue_lamp": "Living Room",
-    "input_boolean.alexa_trigger": "Kitchen"
+    "input_boolean.alexa_trigger": "Kitchen",
+    "climate.lounge_lounge": "Living Room"
   };
   // Names for the glasses only
-  var NAMES = { "input_boolean.alexa_trigger": "Coffee machine" };
+  var NAMES = { "input_boolean.alexa_trigger": "Coffee machine", "climate.lounge_lounge": "Heating" };
   var $list = document.getElementById("list"), $status = document.getElementById("status"), $info = document.getElementById("info"),
       $back = document.getElementById("back"), $title = document.getElementById("title");
-  var ha = GlassesHA, ents = [], states = {}, names = {}, rooms = {}, timer = null, busyUntil = {}, room = null, shown = "";
+  var ha = GlassesHA, ents = [], states = {}, names = {}, rooms = {}, attrs = {}, timer = null, busyUntil = {}, room = null, shown = "";
+  var clim = null, pendingT = null, tTimer = null;   // thermostat screen
   function status(t, err){ $status.textContent = t; $status.className = err ? "err" : ""; }
   function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
   function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
@@ -78,7 +86,53 @@
   function grouped(){ return roomNames().length > 1; }
 
   // Rooms view (when entities span more than one room) or the entities of one room
+  function deg(t){ return t === null || t === undefined ? "–" : (Math.round(t * 10) / 10) + "°"; }
+  function cap(t){ t = String(t || ""); return t.charAt(0).toUpperCase() + t.slice(1); }
+
+  // Thermostat screen: current temperature, target up/down, presets (Home, Boost, Away, Standby…)
+  function renderClimate(){
+    var a = attrs[clim] || {}, target = pendingT !== null ? pendingT : a.temperature, presets = a.preset_modes || [];
+    $back.hidden = false; $title.textContent = names[clim] || clim;
+    var key = "C:" + clim + ":" + presets.join(",");
+    if (key !== shown) {
+      shown = key;
+      $list.innerHTML = '<li><div class="clim"><div class="now"><small>Now</small><span id="cnow"></span></div><div class="set">Target<b id="cset"></b></div></div></li>' +
+        '<li class="row2"><button class="ent adj" data-d="-1">− Colder</button><button class="ent adj" data-d="1">+ Warmer</button></li>' +
+        presets.map(function(p){ return '<li><button class="ent preset" data-p="' + esc(p) + '"><span class="dot"></span><span class="name">' + esc(cap(p)) + '</span><span class="state"></span></button></li>'; }).join("");
+      [].forEach.call($list.querySelectorAll("button.adj"), function(b){ b.addEventListener("click", function(){ adjust(+b.dataset.d); }); });
+      [].forEach.call($list.querySelectorAll("button.preset"), function(b){ b.addEventListener("click", function(){ setPreset(b.dataset.p, b); }); });
+      var f = $list.querySelector("button.adj[data-d='1']"); if (f) f.focus();
+    }
+    document.getElementById("cnow").textContent = deg(a.current_temperature);
+    document.getElementById("cset").textContent = deg(target);
+    [].forEach.call($list.querySelectorAll("button.preset"), function(b){
+      var on = a.preset_mode === b.dataset.p; b.classList.toggle("heat", on);
+      b.querySelector(".state").textContent = on ? "on" : ""; });
+    status(a.hvac_action === "heating" ? "Heating" : "Ready");
+  }
+  function adjust(d){
+    var a = attrs[clim] || {}, step = a.target_temp_step || 0.5, t = pendingT !== null ? pendingT : (a.temperature || 20);
+    t = Math.max(a.min_temp || 5, Math.min(a.max_temp || 35, Math.round((t + d * step) / step) * step));
+    pendingT = t; renderClimate();
+    clearTimeout(tTimer);
+    var id = clim;
+    tTimer = setTimeout(function(){   // send once you stop pressing
+      status("Setting…");
+      ha.service("climate", "set_temperature", { entity_id:id, temperature:t }).then(function(){
+        if (attrs[id]) attrs[id].temperature = t; if (pendingT === t) pendingT = null; status("Set to " + deg(t)); setTimeout(load, 800); })
+        .catch(function(e){ pendingT = null; var r = failed(e); if (r !== null && r !== "Offline") { status("Failed", true); info(String(e && e.message || e)); } });
+    }, 1200);
+  }
+  function setPreset(p, b){
+    b.classList.add("busy"); status("Switching…");
+    ha.service("climate", "set_preset_mode", { entity_id:clim, preset_mode:p }).then(function(){
+      b.classList.remove("busy"); if (attrs[clim]) attrs[clim].preset_mode = p; renderClimate(); setTimeout(load, 800); })
+      .catch(function(e){ b.classList.remove("busy"); var r = failed(e); if (r !== null && r !== "Offline") { status("Failed", true); info(String(e && e.message || e)); } });
+  }
+  function openClimate(id){ clim = id; pendingT = null; shown = ""; history.pushState({ clim:id }, "", location.pathname + location.search + "#heat"); render(); }
+
   function render(){
+    if (clim) return renderClimate();
     var showRooms = grouped() && !room;
     var ids = showRooms ? roomNames() : (room ? (rooms[room] || []) : ents).slice().sort(function(a,b){ return (names[a]||a).localeCompare(names[b]||b); });
     var key = (showRooms ? "R:" : "E:") + ids.join(",");
@@ -89,13 +143,13 @@
       $list.innerHTML = ids.map(function(id){
         return '<li><button class="ent' + (showRooms ? ' room' : '') + '" data-id="' + esc(id) + '"><span class="dot"></span><span class="name"></span><span class="state"></span></button></li>'; }).join("");
       [].forEach.call($list.querySelectorAll("button.ent"), function(b){
-        b.addEventListener("click", function(){ if (b.classList.contains("room")) openRoom(b.dataset.id); else toggle(b); }); });
+        b.addEventListener("click", function(){ if (b.classList.contains("room")) openRoom(b.dataset.id); else if (/^climate\./.test(b.dataset.id)) openClimate(b.dataset.id); else toggle(b); }); });
       var f = $list.querySelector("button.ent"); if (f) f.focus();
     }
     [].forEach.call($list.querySelectorAll("button.ent"), function(b){
       var id = b.dataset.id;
       if (b.classList.contains("room")) {
-        var members = rooms[id] || [], on = members.filter(function(m){ return ON.indexOf(states[m]) >= 0; }).length;
+        var members = rooms[id] || [], on = members.filter(function(m){ return ON.indexOf(states[m]) >= 0 && !/^climate\./.test(m); }).length;
         b.classList.toggle("on", on > 0);
         b.querySelector(".name").textContent = id;
         b.querySelector(".state").textContent = on ? on + " on" : "off";
@@ -106,6 +160,14 @@
       b.classList.toggle("on", isOn); b.classList.toggle("unavail", un);
       b.classList.toggle("busy", (busyUntil[id] || 0) > Date.now());
       b.querySelector(".name").textContent = names[id] || id;
+      if (/^climate\./.test(id)) {   // thermostat row: room temperature and target
+        var ca = attrs[id] || {};
+        b.classList.toggle("on", false); b.classList.toggle("heat", ca.hvac_action === "heating");
+        b.querySelector(".name").textContent = names[id] || id;
+        b.querySelector(".state").textContent = un ? "—" : deg(ca.current_temperature) + " → " + deg(ca.temperature);
+        b.setAttribute("aria-label", (names[id]||id) + ", " + deg(ca.current_temperature) + ", target " + deg(ca.temperature));
+        return;
+      }
       b.querySelector(".state").textContent = un ? "—" : (/^(script|scene|button|input_button)\./.test(id) ? "run" : st);
       b.setAttribute("aria-label", (names[id]||id) + ", " + (un ? "unavailable" : st));
     });
@@ -116,8 +178,10 @@
   function closeRoom(){ var was = room; room = null; shown = ""; render();
     var b = was && $list.querySelector('[data-id="' + was.replace(/"/g, '\\"') + '"]'); if (b) b.focus(); }
   $back.addEventListener("click", function(){ history.back(); });
-  window.addEventListener("popstate", function(){ if (room) closeRoom(); });
-  document.addEventListener("keydown", function(e){ if ((e.key === "Escape" || e.key === "Backspace") && room) { e.preventDefault(); history.back(); } });
+  function closeClimate(){ var was = clim; clim = null; pendingT = null; shown = ""; render();
+    var b = was && $list.querySelector('[data-id="' + was + '"]'); if (b) b.focus(); }
+  window.addEventListener("popstate", function(){ if (clim) closeClimate(); else if (room) closeRoom(); });
+  document.addEventListener("keydown", function(e){ if ((e.key === "Escape" || e.key === "Backspace") && (room || clim)) { e.preventDefault(); history.back(); } });
 
   function load(){
     clearTimeout(timer);
@@ -126,9 +190,11 @@
       ents = list.map(function(e){ return e.entity_id; });
       rooms = {};
       list.forEach(function(e){ var prev = states[e.entity_id]; states[e.entity_id] = e.state; names[e.entity_id] = NAMES[e.entity_id] || clean(e.name);
+        if (e.attrs) attrs[e.entity_id] = e.attrs;
         var r = ROOMS[e.entity_id] || e.area || OTHER; (rooms[r] = rooms[r] || []).push(e.entity_id);
         if (prev !== undefined && prev !== e.state) busyUntil[e.entity_id] = 0; });
       if (room && !rooms[room]) room = null;
+      if (clim && ents.indexOf(clim) < 0) clim = null;
       if (!ents.length) { status("Ready"); info("Nothing nominated yet. In Home Assistant, add the <b>Glasses</b> label to the lights and switches you want here."); }
       else { info(""); status("Ready"); render(); }
       timer = setTimeout(load, 8000);
