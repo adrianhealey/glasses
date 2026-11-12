@@ -56,10 +56,14 @@
     "input_boolean.fire": "Living Room",
     "switch.blue_lamp": "Living Room",
     "input_boolean.alexa_trigger": "Kitchen",
-    "climate.lounge_lounge": "Living Room"
+    "climate.lounge_lounge": "Living Room",
+    "switch.smart_switch_2304033488326551030148e1e9c2bad3_outlet": "Cinema Room"
   };
+  // Room names for the glasses only (Home Assistant area -> name shown here)
+  var RENAME = { "Ade's Office": "Cinema Room" };
   // Names for the glasses only
-  var NAMES = { "input_boolean.alexa_trigger": "Coffee machine", "climate.lounge_lounge": "Heating" };
+  var NAMES = { "input_boolean.alexa_trigger": "Coffee machine", "climate.lounge_lounge": "Heating",
+                "switch.smart_switch_2304033488326551030148e1e9c2bad3_outlet": "TV power" };
   var $list = document.getElementById("list"), $status = document.getElementById("status"), $info = document.getElementById("info"),
       $back = document.getElementById("back"), $title = document.getElementById("title");
   var ha = GlassesHA, ents = [], states = {}, names = {}, rooms = {}, attrs = {}, timer = null, busyUntil = {}, room = null, shown = "";
@@ -191,7 +195,7 @@
       rooms = {};
       list.forEach(function(e){ var prev = states[e.entity_id]; states[e.entity_id] = e.state; names[e.entity_id] = NAMES[e.entity_id] || clean(e.name);
         if (e.attrs) attrs[e.entity_id] = e.attrs;
-        var r = ROOMS[e.entity_id] || e.area || OTHER; (rooms[r] = rooms[r] || []).push(e.entity_id);
+        var r = ROOMS[e.entity_id] || e.area || OTHER; r = RENAME[r] || r; (rooms[r] = rooms[r] || []).push(e.entity_id);
         if (prev !== undefined && prev !== e.state) busyUntil[e.entity_id] = 0; });
       if (room && !rooms[room]) room = null;
       if (clim && ents.indexOf(clim) < 0) clim = null;
