@@ -20,12 +20,19 @@
 </style>
 </head>
 <body>
-<a id="go" href="https://www.linkedin.com/feed/">Open LinkedIn</a>
+<a id="go" href="https://www.linkedin.com/feed/" target="_blank" rel="noopener">Open LinkedIn</a>
+<a id="go2" href="https://www.linkedin.com/feed/">Open here instead</a>
 <p>Select to open your LinkedIn feed</p>
 <script>
   // Launch page so the glasses show our own icon. The glasses only allow leaving for another
   // website when you select a link yourself, so this is a button rather than an automatic jump.
   document.getElementById("go").focus();
+  // try a new window first (the glasses may hand it to their browser); fall back to this window
+  document.getElementById("go").addEventListener("click", function (e) {
+    var w = null; try { w = window.open(this.href, "_blank"); } catch (x) {}
+    if (w) { e.preventDefault(); return; }
+    e.preventDefault(); location.href = this.href;
+  });
 </script>
 </body>
 </html>
