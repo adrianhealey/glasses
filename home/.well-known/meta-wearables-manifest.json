@@ -3,9 +3,21 @@
   "name": "Home",
   "description": "Switch Home Assistant lights and switches on and off",
   "appearance": {
-    "theme_color": "#FFC94D",
+    "theme_color": "#FFFFFF",
+    "icon_background": {
+      "colors": [
+        "#6FD0FA",
+        "#41BDF5",
+        "#1E9AD6"
+      ],
+      "stops": [
+        0,
+        0.55,
+        1
+      ]
+    },
     "icon": {
-      "src": "../../icons/switches-mono-512.png",
+      "src": "../../icons/ha-mono-512.png",
       "type": "monochrome"
     }
   }
