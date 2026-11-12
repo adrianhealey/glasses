@@ -33,13 +33,19 @@
      (select the picture to bring them back for a few seconds) */
   #screen,#screen:focus{border:0;outline:none;border-radius:0;background:#000}
   body.full header,body.full #controls,body.full #info{display:none!important}
+  /* loading screen while a channel starts (replaces the browser's grey play-button placeholder) */
+  #loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#000;pointer-events:none}
+  #loading .spin{width:54px;height:54px;border-radius:50%;border:5px solid #26313d;border-top-color:#5ad1ff;animation:spin 0.9s linear infinite}
+  #loadname{font-size:26px;font-weight:600}
+  #loadmsg{font-size:18px;color:#8a8a8a}
+  @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <header><h1 id="title">TV</h1><span id="status">Connecting…</span></header>
 <ul id="channels" hidden></ul>
 <div id="player" hidden>
-  <button id="screen" aria-label="Video, select to pause or play"><video id="video" playsinline></video><span id="paused" hidden>Paused · select to play</span></button>
+  <button id="screen" aria-label="Video, select to pause or play"><video id="video" playsinline poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video><span id="loading" hidden><span class="spin"></span><span id="loadname"></span><span id="loadmsg">Tuning in…</span></span><span id="paused" hidden>Paused · select to play</span></button>
   <div id="controls"><button id="voldown">🔉 −</button><button id="volup">🔊 +</button><button id="mute">Mute</button><button id="list">Channels</button></div>
 </div>
 <div id="info" class="note" hidden></div>
@@ -65,7 +71,9 @@
   var uiTimer = null;
   function hideUI(){ clearTimeout(uiTimer); if (current && !$("player").hidden && !$("video").paused) document.body.classList.add("full"); }
   function showUI(ms){ document.body.classList.remove("full"); clearTimeout(uiTimer); uiTimer = setTimeout(hideUI, ms || 5000); }
+  function loading(on, msg){ $("loading").hidden = !on; if (on) { $("loadname").textContent = names[current] || ""; $("loadmsg").textContent = msg || "Tuning in…"; } }
   function stop(){
+    loading(false);
     clearTimeout(uiTimer); document.body.classList.remove("full");   // stopped or paused: show the title and buttons
     if (hls) { hls.destroy(); hls = null; }
     var v = $("video"); v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load();
@@ -91,13 +99,13 @@
     return v.play().then(function(){ $("paused").hidden = true; }).catch(function(){
       v.muted = true; $("mute").textContent = "Unmute";
       return v.play().then(function(){ $("paused").hidden = true; info("Playing muted – select <b>Unmute</b> for sound."); })
-        .catch(function(){ $("paused").textContent = "Select the picture to play"; $("paused").hidden = false; status("Ready"); });
+        .catch(function(){ loading(false); $("paused").textContent = "Select the picture to play"; $("paused").hidden = false; status("Ready"); });
     });
   }
   function play(id){
     stop();
     current = id; $("channels").hidden = true; $("player").hidden = false; $("paused").hidden = true;
-    $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus();
+    $("title").textContent = names[id] || id; status("Starting…"); $("screen").focus(); loading(true);
     var vv = $("video"); vv.volume = vol;
     // HLS only (no WebRTC, which would open an extra IPTV connection). Home Assistant closes
     // the previous channel's stream before it starts this one, so switching uses one connection.
@@ -112,9 +120,9 @@
       if (current !== id) return;
       var v = $("video");
       v.volume = vol;
-      v.onplaying = function(){ status("● Live · " + ha.routeName(), "live"); showUI(3000); };
-      v.onwaiting = function(){ status("Buffering…"); };
-      v.onerror = function(){ status("Stream error", true); };
+      v.onplaying = function(){ loading(false); status("● Live · " + ha.routeName(), "live"); showUI(3000); };
+      v.onwaiting = function(){ status("Buffering…"); if (!v.currentTime) loading(true); };
+      v.onerror = function(){ loading(false); status("Stream error", true); };
       function viaHlsJs(){ return loadHlsJs().then(function(Hls){
         if (!Hls.isSupported()) throw new Error("this browser can't play HLS");
         // generous timeouts: a freshly started HA stream can take a while to produce its first segments
@@ -131,7 +139,7 @@
           if (code === 404 && restarts < 3) { restarts++; status("Reconnecting…"); setTimeout(function(){ if (current === id) playHls(id); }, 1500); return; }
           if (recoveries < 3 && d.type === Hls.ErrorTypes.NETWORK_ERROR) { recoveries++; status("Reconnecting…"); setTimeout(function(){ if (hls) hls.startLoad(); }, 2000); return; }
           if (recoveries < 3 && d.type === Hls.ErrorTypes.MEDIA_ERROR) { recoveries++; hls.recoverMediaError(); return; }
-          status("Stream error", true); info("Stream problem: " + esc(d.details) + (code !== undefined ? " (" + code + ")" : ""));
+          loading(false); status("Stream error", true); info("Stream problem: " + esc(d.details) + (code !== undefined ? " (" + code + ")" : ""));
         });
         hls.loadSource(url); hls.attachMedia(v);
         hls.on(Hls.Events.MANIFEST_PARSED, function(){ startPlay(v); });
@@ -148,7 +156,7 @@
     }).catch(function(e){
       var t = ha.describe(e, H); if (t === null) return;
       if (t === "Offline") { status("Offline", true); ha.explain(e, $("info"), function(){ return $("status").textContent === "Offline"; }); setTimeout(function(){ if (current === id && !document.hidden) playHls(id); }, 4000); return; }
-      status("Error", true); info("Couldn't start " + esc(names[id] || id) + ": " + esc(e && (e.message || e.code) || e));
+      loading(false); status("Error", true); info("Couldn't start " + esc(names[id] || id) + ": " + esc(e && (e.message || e.code) || e));
     });
   }
 
