@@ -29,6 +29,10 @@
   #controls{display:flex;gap:8px;padding:6px 10px 8px}
   #controls button{flex:1;padding:10px;font-size:19px}
   .note{font-size:20px;color:#8a8a8a;line-height:1.35;padding:6px 14px}
+  /* picture only: no focus ring round the video, and while playing the title and buttons hide
+     (select the picture to bring them back for a few seconds) */
+  #screen,#screen:focus{border:0;outline:none;border-radius:0;background:#000}
+  body.full header,body.full #controls,body.full #info{display:none!important}
 </style>
 </head>
 <body>
@@ -57,12 +61,18 @@
     return n; }
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 
+  // Picture only while playing: title and buttons hide a few seconds after they were last used.
+  var uiTimer = null;
+  function hideUI(){ clearTimeout(uiTimer); if (current && !$("player").hidden && !$("video").paused) document.body.classList.add("full"); }
+  function showUI(ms){ document.body.classList.remove("full"); clearTimeout(uiTimer); uiTimer = setTimeout(hideUI, ms || 5000); }
   function stop(){
+    clearTimeout(uiTimer); document.body.classList.remove("full");   // stopped or paused: show the title and buttons
     if (hls) { hls.destroy(); hls = null; }
     var v = $("video"); v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load();
   }
   function showList(){
     stop(); ha.stopStream(current); current = null; $("player").hidden = true; $("title").textContent = "TV";
+    clearTimeout(uiTimer); document.body.classList.remove("full");
     $("channels").hidden = false;
     $("channels").innerHTML = chans.map(function(id){ return '<li><button data-id="' + id + '">' + esc(names[id] || id) + '</button></li>'; }).join("");
     [].forEach.call(document.querySelectorAll("#channels button"), function(b){ b.addEventListener("click", function(){ play(b.dataset.id); }); });
@@ -102,7 +112,7 @@
       if (current !== id) return;
       var v = $("video");
       v.volume = vol;
-      v.onplaying = function(){ status("● Live · " + ha.routeName(), "live"); };
+      v.onplaying = function(){ status("● Live · " + ha.routeName(), "live"); showUI(3000); };
       v.onwaiting = function(){ status("Buffering…"); };
       v.onerror = function(){ status("Stream error", true); };
       function viaHlsJs(){ return loadHlsJs().then(function(Hls){
@@ -144,9 +154,13 @@
 
   $("screen").addEventListener("click", function(){
     var v = $("video");
+    if (document.body.classList.contains("full")) { showUI(); return; }   // first select: just show the buttons
     if (current && !hls && !v.getAttribute("src")) { play(current); return; }   // stopped because another app opened
-    if (v.paused) { v.play(); $("paused").hidden = true; status("● Live · " + ha.routeName(), "live"); } else { v.pause(); $("paused").hidden = false; status("Paused"); }
+    if (v.paused) { v.play(); $("paused").hidden = true; status("● Live · " + ha.routeName(), "live"); showUI(3000); } else { v.pause(); $("paused").hidden = false; status("Paused"); clearTimeout(uiTimer); document.body.classList.remove("full"); }
   });
+  // using the buttons keeps them on screen; any swipe/key while hidden brings them back
+  $("controls").addEventListener("click", function(){ showUI(); });
+  document.addEventListener("keydown", function(e){ if (e.key !== "Enter" && e.key !== " " && document.body.classList.contains("full")) showUI(); });
   function setVol(d){ var v = $("video"); vol = Math.max(0, Math.min(1, Math.round((vol + d) * 10) / 10)); v.volume = vol; v.muted = false;
     $("mute").textContent = "Mute"; status("Volume " + Math.round(vol * 100) + "%"); try { localStorage.setItem("tv_vol", vol); } catch (e) {} }
   $("volup").addEventListener("click", function(){ setVol(0.1); });
