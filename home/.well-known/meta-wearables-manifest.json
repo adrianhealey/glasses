@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "name": "Home",
+  "name": "Home Assistant",
   "description": "Switch Home Assistant lights and switches on and off",
   "appearance": {
     "theme_color": "#FFFFFF",
