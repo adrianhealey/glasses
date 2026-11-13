@@ -38,6 +38,7 @@
   .clim{display:flex;align-items:baseline;justify-content:space-between;padding:6px 6px 10px}
   .clim .now{font-size:46px;font-weight:600} .clim .now small{font-size:20px;color:var(--dim);font-weight:400;display:block}
   .clim .set{font-size:22px;color:var(--dim);text-align:right} .clim .set b{display:block;font-size:46px;color:#ff8a3d}
+  button.fix23{justify-content:center;color:#ff8a3d;font-weight:600}
   .row2{display:flex;gap:10px} .row2 button.ent{justify-content:center;font-size:26px;min-height:64px}
 </style>
 </head>
@@ -103,8 +104,10 @@
       shown = key;
       $list.innerHTML = '<li><div class="clim"><div class="now"><small>Now</small><span id="cnow"></span></div><div class="set">Target<b id="cset"></b></div></div></li>' +
         '<li class="row2"><button class="ent adj" data-d="-1">− Colder</button><button class="ent adj" data-d="1">+ Warmer</button></li>' +
+        '<li><button class="ent fix23"><span class="name">🔥 Set to 23°</span></button></li>' +
         presets.map(function(p){ return '<li><button class="ent preset" data-p="' + esc(p) + '"><span class="dot"></span><span class="name">' + esc(cap(p)) + '</span><span class="state"></span></button></li>'; }).join("");
       [].forEach.call($list.querySelectorAll("button.adj"), function(b){ b.addEventListener("click", function(){ adjust(+b.dataset.d); }); });
+      var f23 = $list.querySelector("button.fix23"); if (f23) f23.addEventListener("click", function(){ setFixed(23, f23); });
       [].forEach.call($list.querySelectorAll("button.preset"), function(b){ b.addEventListener("click", function(){ setPreset(b.dataset.p, b); }); });
       var f = $list.querySelector("button.adj[data-d='1']"); if (f) f.focus();
     }
@@ -127,6 +130,13 @@
         if (attrs[id]) attrs[id].temperature = t; if (pendingT === t) pendingT = null; status("Set to " + deg(t)); setTimeout(load, 800); })
         .catch(function(e){ pendingT = null; var r = failed(e); if (r !== null && r !== "Offline") { status("Failed", true); info(String(e && e.message || e)); } });
     }, 1200);
+  }
+  // one-press fixed target (e.g. 23°)
+  function setFixed(t, b){
+    var id = clim; clearTimeout(tTimer); pendingT = t; renderClimate(); b.classList.add("busy"); status("Setting…");
+    ha.service("climate", "set_temperature", { entity_id:id, temperature:t }).then(function(){
+      b.classList.remove("busy"); if (attrs[id]) attrs[id].temperature = t; if (pendingT === t) pendingT = null; status("Set to " + deg(t)); setTimeout(load, 800); })
+      .catch(function(e){ b.classList.remove("busy"); pendingT = null; var r = failed(e); if (r !== null && r !== "Offline") { status("Failed", true); info(String(e && e.message || e)); } });
   }
   function setPreset(p, b){
     b.classList.add("busy"); status("Switching…");
