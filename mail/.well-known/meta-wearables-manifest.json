@@ -3,9 +3,21 @@
   "name": "Mail",
   "description": "practitionermatch info@ and adrian@ inboxes",
   "appearance": {
-    "theme_color": "#7CC4FF",
+    "theme_color": "#FFFFFF",
+    "icon_background": {
+      "colors": [
+        "#2B8CE6",
+        "#0F6CBD",
+        "#0B3E8C"
+      ],
+      "stops": [
+        0,
+        0.55,
+        1
+      ]
+    },
     "icon": {
-      "src": "../../icons/mail-mono-512.png",
+      "src": "../../icons/outlook-mono-512.png",
       "type": "monochrome"
     }
   }
