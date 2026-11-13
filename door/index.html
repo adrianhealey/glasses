@@ -30,10 +30,20 @@
   #porch.on .dot{background:#ffc94d;border-color:#ffc94d;box-shadow:0 0 12px #ffc94d}
   #porch .pname{flex:1} #porch .pstate{font-weight:600;color:#8a8a8a;text-transform:uppercase} #porch.on .pstate{color:#ffc94d}
   #porch.busy{opacity:.55}
+  /* camera menu */
+  #menuBtn{display:flex;align-items:center;gap:8px;background:none;border:3px solid transparent;border-radius:12px;color:#fff;font:inherit;font-size:24px;font-weight:600;padding:2px 10px 2px 4px}
+  #menuBtn:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
+  #menuBtn .caret{font-size:18px;color:#5ad1ff}
+  #menu{position:fixed;inset:0;z-index:5;background:#000;display:flex;flex-direction:column;padding:14px 12px;overflow-y:auto}
+  #menu h2{font-size:20px;color:#8a8a8a;font-weight:500;padding:0 6px 10px}
+  #menu button{display:flex;align-items:center;gap:12px;width:100%;margin-bottom:8px;padding:12px 16px;border-radius:14px;border:3px solid transparent;background:#141414;color:#fff;font:inherit;font-size:24px;text-align:left}
+  #menu button:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
+  #menu button.cur::after{content:"\25CF";margin-left:auto;color:#ff5a5a;font-size:16px}
 </style>
 </head>
 <body>
-<header><h1>Front door</h1><span id="status">Connecting…</span></header>
+<header><button id="menuBtn" aria-label="Choose camera"><span id="camName">Front door</span><span class="caret">▾</span></button><span id="status">Connecting…</span></header>
+<div id="menu" hidden role="menu"><h2>Choose camera</h2><div id="menuList"></div></div>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
 <button id="porch" hidden aria-label="Porch light"><span class="dot"></span><span class="pname">Porch light</span><span class="pstate"></span></button>
 <div id="info" class="msg" hidden></div>
@@ -46,6 +56,42 @@
   var AUTO_PAUSE = 2 * 60000;   // pause after 2 minutes so a forgotten app doesn't keep pulling pictures
   var $view = document.getElementById("view"), $cam = document.getElementById("cam"), $status = document.getElementById("status"),
       $info = document.getElementById("info"), $paused = document.getElementById("paused");
+  // tidy Blue Iris names ("ades security front door (Cam2) …" -> "Front door")
+  var NICE = { "camera.ades_security_utility": "Utility", "camera.ades_security_front_door": "Front door",
+    "camera.ades_security_connor_s_room": "Connor's room", "camera.ades_security_caravan_internal": "Caravan internal",
+    "camera.ades_security_caravaninside_cam3_ades_security_caravaninside": "Caravan inside", "camera.ades_security_all_cameras": "All cameras" };
+  var ORDER = ["camera.ades_security_utility", "camera.ades_security_front_door", "camera.ades_security_connor_s_room",
+    "camera.ades_security_caravan_internal", "camera.ades_security_caravaninside_cam3_ades_security_caravaninside", "camera.ades_security_all_cameras"];
+  function nice(e){
+    if (NICE[e.entity_id]) return NICE[e.entity_id];
+    var n = String(e.name || e.entity_id).replace(/^ades security\s*\+?/i, "").replace(/\s*\(.*$/, "").trim();
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  }
+  try { var saved = localStorage.getItem("door_camera"); if (saved) CAMERA = saved; } catch (e) {}
+  var cams = [], $menu = document.getElementById("menu"), $menuList = document.getElementById("menuList"),
+      $menuBtn = document.getElementById("menuBtn"), $camName = document.getElementById("camName");
+  function buildMenu(){
+    $menuList.innerHTML = "";
+    cams.forEach(function(c){
+      var b = document.createElement("button");
+      b.textContent = c.name; b.setAttribute("role", "menuitem");
+      if (c.id === CAMERA) b.className = "cur";
+      b.addEventListener("click", function(){ choose(c.id); });
+      $menuList.appendChild(b);
+    });
+  }
+  function openMenu(){
+    if (!cams.length) return;
+    stop(); buildMenu(); $menu.hidden = false;
+    var cur = $menuList.querySelector(".cur") || $menuList.firstChild; if (cur) cur.focus();
+  }
+  function closeMenu(){ $menu.hidden = true; $menuBtn.focus(); }
+  function choose(id){
+    CAMERA = id; try { localStorage.setItem("door_camera", id); } catch (e) {}
+    $menu.hidden = true; $cam.removeAttribute("src"); start();
+  }
+  $menuBtn.addEventListener("click", openMenu);
+  document.addEventListener("keydown", function(ev){ if (!$menu.hidden && (ev.key === "Escape" || ev.key === "Backspace")) { ev.preventDefault(); closeMenu(); if (!paused) start(); } });
   var porchId = null, $porch = document.getElementById("porch");
   function porchShow(st){
     $porch.hidden = false; $porch.classList.remove("busy");
@@ -73,9 +119,15 @@
   function refreshToken(){
     clearTimeout(tokTimer);
     return ha.entities(LABEL).then(function(list){
-      var s = list.filter(function(e){ return e.entity_id.indexOf("camera.") === 0; })[0];
+      var all = list.filter(function(e){ return e.entity_id.indexOf("camera.") === 0; });
+      cams = all.map(function(e){ return { id: e.entity_id, name: nice(e) }; });
+      cams.sort(function(a, b){ var i = ORDER.indexOf(a.id), j = ORDER.indexOf(b.id);
+        return (i < 0 ? 99 : i) - (j < 0 ? 99 : j) || a.name.localeCompare(b.name); });
+      var s = all.filter(function(e){ return e.entity_id === CAMERA; })[0] || all[0];
       if (!s) { status("No camera", true); info("In Home Assistant, add the <b>Glasses Door</b> label to the camera to show here."); throw new Error("no camera"); }
       CAMERA = s.entity_id;
+      var nm = nice(s); $camName.textContent = nm; document.title = nm;
+      $view.setAttribute("aria-label", nm + " camera, select to pause or resume"); $cam.alt = nm + " camera";
       // the light or switch carrying the same label is the porch light
       var p = list.filter(function(e){ return /^(light|switch)\./.test(e.entity_id); })[0];
       if (p) { porchId = p.entity_id; porchShow(p.state); }
