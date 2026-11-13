@@ -26,6 +26,7 @@
   /* switches under the picture (which ones depends on the camera) */
   #devs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 12px 10px}
   #devs.one{grid-template-columns:1fr}
+  #devs.three{grid-template-columns:1fr 1fr 1fr;gap:6px} #devs.three .dev{font-size:18px;padding:8px 10px;gap:8px} #devs.three .dev:not(.ro) .pstate{display:none} #devs.three .pstate{font-size:16px}
   .dev{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:16px;border:3px solid transparent;background:#141414;color:#fff;font:inherit;font-size:22px;text-align:left;min-width:0}
   .dev:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
   .dev .dot{flex:none;width:22px;height:22px;border-radius:50%;background:#3a3a3a;border:3px solid #666}
@@ -102,8 +103,10 @@
   //  "Living Room" = the Living Room devices from the Home app (Glasses label)
   var DEVS = { "camera.ades_security_utility": "door", "camera.ades_security_connor_s_room": "Living Room" };
   // devices the Home app puts in the Living Room although their Home Assistant area differs (keep in step with home/index.html ROOMS)
-  var LIVING = ["switch.media_wall", "input_boolean.fire", "switch.blue_lamp", "climate.lounge_lounge"];
-  var DNAMES = { "climate.lounge_lounge": "Heating", "switch.sonoff_100180ad87": "Porch light" };
+  var LIVING = ["switch.media_wall", "input_boolean.fire", "switch.blue_lamp", "climate.lounge_lounge",
+    "light.kitchen_island_leds", "input_boolean.cooker_hood_light", "input_boolean.alexa_trigger"];   // + Kitchen
+  var DNAMES = { "climate.lounge_lounge": "Heating", "switch.sonoff_100180ad87": "Porch light", "input_boolean.alexa_trigger": "Coffee",
+    "input_boolean.cooker_hood_light": "Hood light", "light.kitchen_island_leds": "Island LEDs" };
   var $devs = document.getElementById("devs"), devList = [], devBusy = {};
   function dclean(n){ n = String(n || "").trim(); var w = n.split(/\s+/), h = w.length / 2;
     if (w.length % 2 === 0 && w.slice(0,h).join(" ").toLowerCase() === w.slice(h).join(" ").toLowerCase()) n = w.slice(0,h).join(" ");
@@ -123,7 +126,7 @@
         $devs.appendChild(b);
       });
     }
-    $devs.hidden = !devList.length; $devs.classList.toggle("one", devList.length === 1);
+    $devs.hidden = !devList.length; $devs.classList.toggle("one", devList.length === 1); $devs.classList.toggle("three", devList.length > 4);
     devList.forEach(function(d){
       var b = $devs.querySelector('[data-id="' + d.entity_id + '"]'); if (!b) return;
       var nm = DNAMES[d.entity_id] || dclean(d.name), st = d.state;
@@ -131,7 +134,7 @@
       if (/^climate\./.test(d.entity_id)) {
         var a = d.attrs || {};
         b.classList.toggle("heat", a.hvac_action === "heating");
-        b.querySelector(".pstate").textContent = deg(a.current_temperature) + "→" + deg(a.temperature);
+        b.querySelector(".pstate").textContent = devList.length > 4 ? deg(a.current_temperature) : deg(a.current_temperature) + "→" + deg(a.temperature);
         b.setAttribute("aria-label", nm + ", " + deg(a.current_temperature) + ", target " + deg(a.temperature));
         return;
       }
