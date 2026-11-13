@@ -23,13 +23,18 @@
   #cam{max-width:100%;max-height:100%;object-fit:contain;border-radius:10px;display:block}
   #paused{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:20px;text-shadow:0 0 6px #000}
   .msg{font-size:22px;color:#8a8a8a;line-height:1.35;padding:8px 16px}
-  /* porch light switch under the picture */
-  #porch{margin:8px 12px 10px;display:flex;align-items:center;gap:14px;padding:10px 18px;border-radius:16px;border:3px solid transparent;background:#141414;color:#fff;font:inherit;font-size:24px;text-align:left}
-  #porch:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
-  #porch .dot{flex:none;width:26px;height:26px;border-radius:50%;background:#3a3a3a;border:3px solid #666}
-  #porch.on .dot{background:#ffc94d;border-color:#ffc94d;box-shadow:0 0 12px #ffc94d}
-  #porch .pname{flex:1} #porch .pstate{font-weight:600;color:#8a8a8a;text-transform:uppercase} #porch.on .pstate{color:#ffc94d}
-  #porch.busy{opacity:.55}
+  /* switches under the picture (which ones depends on the camera) */
+  #devs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 12px 10px}
+  #devs.one{grid-template-columns:1fr}
+  .dev{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:16px;border:3px solid transparent;background:#141414;color:#fff;font:inherit;font-size:22px;text-align:left;min-width:0}
+  .dev:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
+  .dev .dot{flex:none;width:22px;height:22px;border-radius:50%;background:#3a3a3a;border:3px solid #666}
+  .dev.on .dot{background:#ffc94d;border-color:#ffc94d;box-shadow:0 0 12px #ffc94d}
+  .dev .pname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dev .pstate{font-weight:600;color:#8a8a8a;text-transform:uppercase;font-size:18px} .dev.on .pstate{color:#ffc94d}
+  .dev.heat .dot{background:#ff8a3d;border-color:#ff8a3d;box-shadow:0 0 12px #ff8a3d} .dev.heat .pstate{color:#ff8a3d}
+  .dev.ro{cursor:default}
+  .dev.busy{opacity:.55}
   /* camera menu */
   #menuBtn{display:flex;align-items:center;gap:8px;background:none;border:3px solid transparent;border-radius:12px;color:#fff;font:inherit;font-size:24px;font-weight:600;padding:2px 10px 2px 4px}
   #menuBtn:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
@@ -45,7 +50,7 @@
 <header><button id="menuBtn" aria-label="Choose camera"><span id="camName">Front door</span><span class="caret">▾</span></button><span id="status">Connecting…</span></header>
 <div id="menu" hidden role="menu"><h2>Choose camera</h2><div id="menuList"></div></div>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
-<button id="porch" hidden aria-label="Porch light"><span class="dot"></span><span class="pname">Porch light</span><span class="pstate"></span></button>
+<div id="devs" hidden></div>
 <div id="info" class="msg" hidden></div>
 <script src="../shared.js?v=12"></script>
 <script>
@@ -88,25 +93,72 @@
   function closeMenu(){ $menu.hidden = true; $menuBtn.focus(); }
   function choose(id){
     CAMERA = id; try { localStorage.setItem("door_camera", id); } catch (e) {}
-    $menu.hidden = true; $cam.removeAttribute("src"); start();
+    $menu.hidden = true; $cam.removeAttribute("src"); showDevs([]); start();
   }
   $menuBtn.addEventListener("click", openMenu);
   document.addEventListener("keydown", function(ev){ if (!$menu.hidden && (ev.key === "Escape" || ev.key === "Backspace")) { ev.preventDefault(); closeMenu(); if (!paused) start(); } });
-  var porchId = null, $porch = document.getElementById("porch");
-  function porchShow(st){
-    $porch.hidden = false; $porch.classList.remove("busy");
-    $porch.classList.toggle("on", st === "on");
-    $porch.querySelector(".pstate").textContent = (st === "on" || st === "off") ? st : "—";
-    $porch.setAttribute("aria-label", "Porch light, " + st);
+  // Switches shown under each camera:
+  //  "door"  = the light/switch carrying the Glasses Door label (porch light)
+  //  "Living Room" = the Living Room devices from the Home app (Glasses label)
+  var DEVS = { "camera.ades_security_utility": "door", "camera.ades_security_connor_s_room": "Living Room" };
+  // devices the Home app puts in the Living Room although their Home Assistant area differs (keep in step with home/index.html ROOMS)
+  var LIVING = ["switch.media_wall", "input_boolean.fire", "switch.blue_lamp", "climate.lounge_lounge"];
+  var DNAMES = { "climate.lounge_lounge": "Heating", "switch.sonoff_100180ad87": "Porch light" };
+  var $devs = document.getElementById("devs"), devList = [], devBusy = {};
+  function dclean(n){ n = String(n || "").trim(); var w = n.split(/\s+/), h = w.length / 2;
+    if (w.length % 2 === 0 && w.slice(0,h).join(" ").toLowerCase() === w.slice(h).join(" ").toLowerCase()) n = w.slice(0,h).join(" ");
+    return n.charAt(0).toUpperCase() + n.slice(1); }
+  function deg(t){ return t === null || t === undefined ? "–" : (Math.round(t * 10) / 10) + "°"; }
+  function showDevs(list){
+    devList = list || [];
+    var key = devList.map(function(d){ return d.entity_id; }).join(",");
+    if ($devs.dataset.key !== key) {
+      $devs.dataset.key = key; $devs.innerHTML = "";
+      devList.forEach(function(d){
+        var ro = /^climate\./.test(d.entity_id);
+        var b = document.createElement(ro ? "div" : "button");
+        b.className = "dev" + (ro ? " ro" : ""); b.dataset.id = d.entity_id;
+        b.innerHTML = '<span class="dot"></span><span class="pname"></span><span class="pstate"></span>';
+        if (!ro) b.addEventListener("click", function(){ toggleDev(b); });
+        $devs.appendChild(b);
+      });
+    }
+    $devs.hidden = !devList.length; $devs.classList.toggle("one", devList.length === 1);
+    devList.forEach(function(d){
+      var b = $devs.querySelector('[data-id="' + d.entity_id + '"]'); if (!b) return;
+      var nm = DNAMES[d.entity_id] || dclean(d.name), st = d.state;
+      b.querySelector(".pname").textContent = nm;
+      if (/^climate\./.test(d.entity_id)) {
+        var a = d.attrs || {};
+        b.classList.toggle("heat", a.hvac_action === "heating");
+        b.querySelector(".pstate").textContent = deg(a.current_temperature) + "→" + deg(a.temperature);
+        b.setAttribute("aria-label", nm + ", " + deg(a.current_temperature) + ", target " + deg(a.temperature));
+        return;
+      }
+      if ((devBusy[d.entity_id] || 0) > Date.now()) return;   // keep the optimistic state until HA catches up
+      b.classList.remove("busy"); b.classList.toggle("on", st === "on");
+      b.querySelector(".pstate").textContent = (st === "on" || st === "off") ? st : "—";
+      b.setAttribute("aria-label", nm + ", " + st);
+    });
   }
-  $porch.addEventListener("click", function(){
-    if (!porchId) return;
-    var want = $porch.classList.contains("on") ? "off" : "on";
-    $porch.classList.add("busy");
-    ha.service("homeassistant", want === "on" ? "turn_on" : "turn_off", { entity_id: porchId })
-      .then(function(){ porchShow(want); })
-      .catch(function(){ $porch.classList.remove("busy"); status("Porch light failed", true); });
-  });
+  function toggleDev(b){
+    var id = b.dataset.id, want = b.classList.contains("on") ? "off" : "on";
+    b.classList.add("busy"); devBusy[id] = Date.now() + 4000;
+    ha.service("homeassistant", want === "on" ? "turn_on" : "turn_off", { entity_id: id })
+      .then(function(){ devBusy[id] = 0; b.classList.remove("busy"); b.classList.toggle("on", want === "on");
+        b.querySelector(".pstate").textContent = want; })
+      .catch(function(){ devBusy[id] = 0; b.classList.remove("busy"); status("Switch failed", true); });
+  }
+  function loadDevs(doorList){
+    var mode = DEVS[CAMERA];
+    if (mode === "door") { showDevs(doorList.filter(function(e){ return /^(light|switch)\./.test(e.entity_id); })); return; }
+    if (!mode) { showDevs([]); return; }
+    ha.entities("glasses").then(function(list){
+      if (DEVS[CAMERA] !== mode) return;   // camera changed meanwhile
+      showDevs(list.filter(function(e){ return LIVING.indexOf(e.entity_id) >= 0 || (e.area === mode); })
+        .sort(function(a, b){ return (DNAMES[a.entity_id] || dclean(a.name)).localeCompare(DNAMES[b.entity_id] || dclean(b.name)); }));
+    }, function(){});
+  }
   var ha = GlassesHA, camToken = null, paused = false, timer = null, tokTimer = null, startedAt = 0, running = false, fails = 0;
   function status(t, cls){ $status.textContent = t; $status.className = cls === true ? "err" : (cls || ""); }
   function info(h){ $info.hidden = !h; $info.innerHTML = h || ""; }
@@ -128,9 +180,7 @@
       CAMERA = s.entity_id;
       var nm = nice(s); $camName.textContent = nm; document.title = nm;
       $view.setAttribute("aria-label", nm + " camera, select to pause or resume"); $cam.alt = nm + " camera";
-      // the light or switch carrying the same label is the porch light
-      var p = list.filter(function(e){ return /^(light|switch)\./.test(e.entity_id); })[0];
-      if (p) { porchId = p.entity_id; porchShow(p.state); }
+      loadDevs(list);   // switches for this camera (porch light, Living Room…)
       if (s.state === "unavailable") status("Camera offline", true);
       var t = s.access_token;
       if (t) camToken = t;
