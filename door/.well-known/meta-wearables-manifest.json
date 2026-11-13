@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "name": "Front Door",
-  "description": "Live Blue Iris camera",
+  "name": "Home Cameras",
+  "description": "Live Blue Iris cameras",
   "appearance": {
     "theme_color": "#5AD1FF",
     "icon": {
