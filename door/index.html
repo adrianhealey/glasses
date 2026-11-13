@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Live Blue Iris camera">
+<meta name="description" content="Live Blue Iris cameras">
 <meta name="mrbd-web-app-capable" content="yes">
-<meta name="application-name" content="Front Door">
+<meta name="application-name" content="Home Cameras">
 <meta name="theme-color" content="#000000">
-<title>Front Door</title>
+<title>Home Cameras</title>
 <link rel="icon" type="image/png" sizes="192x192" href="../icons/camera-192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="../icons/camera-apple-180.png">
 <style>
@@ -232,7 +232,7 @@
       var s = all.filter(function(e){ return e.entity_id === CAMERA; })[0] || all[0];
       if (!s) { status("No camera", true); info("In Home Assistant, add the <b>Glasses Door</b> label to the camera to show here."); throw new Error("no camera"); }
       CAMERA = s.entity_id;
-      var nm = nice(s); $camName.textContent = nm; document.title = nm;
+      var nm = nice(s); $camName.textContent = nm;
       $view.setAttribute("aria-label", nm + " camera, select to pause or resume"); $cam.alt = nm + " camera";
       loadDevs(list);   // switches for this camera (porch light, Living Room…)
       if (s.state === "unavailable") status("Camera offline", true);
