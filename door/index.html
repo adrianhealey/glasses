@@ -49,6 +49,7 @@
   #heat .hnow{display:flex;justify-content:space-around;align-items:baseline;padding:6px 0 14px}
   #heat .hnow div{text-align:center;color:#8a8a8a;font-size:18px} #heat .hnow b{display:block;color:#fff;font-size:44px;font-weight:600}
   #heat .hnow .tgt b{color:#ff8a3d}
+  #heat button.hfix{justify-content:center;margin-top:8px;color:#ff8a3d;font-weight:600}
   #heat .hrow{display:flex;gap:8px} #heat .hrow button{justify-content:center}
   #heat button.cur{border-color:#ff8a3d33;background:#2a1a10} #heat button.cur::after{content:"on";margin-left:auto;color:#ff8a3d;font-size:18px;font-weight:600;text-transform:uppercase}
 </style>
@@ -57,7 +58,7 @@
 <header><button id="menuBtn" aria-label="Choose camera"><span id="camName">Front door</span><span class="caret">▾</span></button><span id="status">Connecting…</span></header>
 <div id="menu" hidden role="menu"><h2>Choose camera</h2><div id="menuList"></div></div>
 <div id="heat" hidden><h2 id="hTitle">Heating</h2><div class="hnow"><div>Now<b id="hNow">–</b></div><div class="tgt">Target<b id="hSet">–</b></div></div>
-<div class="hrow"><button class="hadj" data-d="-1">− Colder</button><button class="hadj" data-d="1">+ Warmer</button></div><div id="hPresets"></div><button id="hClose">Close</button></div>
+<div class="hrow"><button class="hadj" data-d="-1">− Colder</button><button class="hadj" data-d="1">+ Warmer</button></div><button id="h23" class="hfix">🔥 Set to 23°</button><div id="hPresets"></div><button id="hClose">Close</button></div>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
 <div id="devs" hidden></div>
 <div id="info" class="msg" hidden></div>
@@ -195,6 +196,13 @@
   }
   [].forEach.call($heat.querySelectorAll(".hadj"), function(b){ b.addEventListener("click", function(){ heatAdjust(+b.dataset.d); }); });
   document.getElementById("hClose").addEventListener("click", closeHeat);
+  // one-press 23°
+  document.getElementById("h23").addEventListener("click", function(){
+    var id = heatId, b = this; clearTimeout(hTimer); pendT = 23; renderHeat(); b.style.opacity = ".55";
+    ha.service("climate", "set_temperature", { entity_id: id, temperature: 23 }).then(function(){
+      b.style.opacity = ""; heatAttrs().temperature = 23; pendT = null; renderHeat(); })
+      .catch(function(){ b.style.opacity = ""; pendT = null; renderHeat(); document.getElementById("hTitle").textContent = "Heating · failed"; });
+  });
   function toggleDev(b){
     var id = b.dataset.id, want = b.classList.contains("on") ? "off" : "on";
     b.classList.add("busy"); devBusy[id] = Date.now() + 4000;
