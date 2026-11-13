@@ -34,22 +34,30 @@
   .dev .pname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .dev .pstate{font-weight:600;color:#8a8a8a;text-transform:uppercase;font-size:18px} .dev.on .pstate{color:#ffc94d}
   .dev.heat .dot{background:#ff8a3d;border-color:#ff8a3d;box-shadow:0 0 12px #ff8a3d} .dev.heat .pstate{color:#ff8a3d}
-  .dev.ro{cursor:default}
+  .dev.ro .pstate{color:#ff8a3d}
   .dev.busy{opacity:.55}
   /* camera menu */
   #menuBtn{display:flex;align-items:center;gap:8px;background:none;border:3px solid transparent;border-radius:12px;color:#fff;font:inherit;font-size:24px;font-weight:600;padding:2px 10px 2px 4px}
   #menuBtn:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
   #menuBtn .caret{font-size:18px;color:#5ad1ff}
-  #menu{position:fixed;inset:0;z-index:5;background:#000;display:flex;flex-direction:column;padding:14px 12px;overflow-y:auto}
-  #menu h2{font-size:20px;color:#8a8a8a;font-weight:500;padding:0 6px 10px}
-  #menu button{display:flex;align-items:center;gap:12px;width:100%;margin-bottom:8px;padding:12px 16px;border-radius:14px;border:3px solid transparent;background:#141414;color:#fff;font:inherit;font-size:24px;text-align:left}
-  #menu button:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
+  #menu,#heat{position:fixed;inset:0;z-index:5;background:#000;display:flex;flex-direction:column;padding:14px 12px;overflow-y:auto}
+  #menu h2,#heat h2{font-size:20px;color:#8a8a8a;font-weight:500;padding:0 6px 10px}
+  #menu button,#heat button{display:flex;align-items:center;gap:12px;width:100%;margin-bottom:8px;padding:12px 16px;border-radius:14px;border:3px solid transparent;background:#141414;color:#fff;font:inherit;font-size:24px;text-align:left}
+  #menu button:focus,#heat button:focus{outline:none;border-color:#5ad1ff;background:#1d1d1d}
   #menu button.cur::after{content:"\25CF";margin-left:auto;color:#ff5a5a;font-size:16px}
+  /* heating screen (from the Heating switch) */
+  #heat .hnow{display:flex;justify-content:space-around;align-items:baseline;padding:6px 0 14px}
+  #heat .hnow div{text-align:center;color:#8a8a8a;font-size:18px} #heat .hnow b{display:block;color:#fff;font-size:44px;font-weight:600}
+  #heat .hnow .tgt b{color:#ff8a3d}
+  #heat .hrow{display:flex;gap:8px} #heat .hrow button{justify-content:center}
+  #heat button.cur{border-color:#ff8a3d33;background:#2a1a10} #heat button.cur::after{content:"on";margin-left:auto;color:#ff8a3d;font-size:18px;font-weight:600;text-transform:uppercase}
 </style>
 </head>
 <body>
 <header><button id="menuBtn" aria-label="Choose camera"><span id="camName">Front door</span><span class="caret">▾</span></button><span id="status">Connecting…</span></header>
 <div id="menu" hidden role="menu"><h2>Choose camera</h2><div id="menuList"></div></div>
+<div id="heat" hidden><h2 id="hTitle">Heating</h2><div class="hnow"><div>Now<b id="hNow">–</b></div><div class="tgt">Target<b id="hSet">–</b></div></div>
+<div class="hrow"><button class="hadj" data-d="-1">− Colder</button><button class="hadj" data-d="1">+ Warmer</button></div><div id="hPresets"></div><button id="hClose">Close</button></div>
 <button id="view" aria-label="Front door camera, select to pause or resume" hidden><img id="cam" alt="Front door camera"><span id="paused" hidden>Paused · select to resume</span></button>
 <div id="devs" hidden></div>
 <div id="info" class="msg" hidden></div>
@@ -97,7 +105,8 @@
     $menu.hidden = true; $cam.removeAttribute("src"); showDevs([]); start();
   }
   $menuBtn.addEventListener("click", openMenu);
-  document.addEventListener("keydown", function(ev){ if (!$menu.hidden && (ev.key === "Escape" || ev.key === "Backspace")) { ev.preventDefault(); closeMenu(); if (!paused) start(); } });
+  document.addEventListener("keydown", function(ev){ if (!$heat.hidden && (ev.key === "Escape" || ev.key === "Backspace")) { ev.preventDefault(); closeHeat(); return; }
+    if (!$menu.hidden && (ev.key === "Escape" || ev.key === "Backspace")) { ev.preventDefault(); closeMenu(); if (!paused) start(); } });
   // Switches shown under each camera:
   //  "door"  = the light/switch carrying the Glasses Door label (porch light)
   //  "Living Room" = the Living Room devices from the Home app (Glasses label)
@@ -119,10 +128,10 @@
       $devs.dataset.key = key; $devs.innerHTML = "";
       devList.forEach(function(d){
         var ro = /^climate\./.test(d.entity_id);
-        var b = document.createElement(ro ? "div" : "button");
+        var b = document.createElement("button");
         b.className = "dev" + (ro ? " ro" : ""); b.dataset.id = d.entity_id;
         b.innerHTML = '<span class="dot"></span><span class="pname"></span><span class="pstate"></span>';
-        if (!ro) b.addEventListener("click", function(){ toggleDev(b); });
+        b.addEventListener("click", function(){ if (ro) openHeat(b.dataset.id); else toggleDev(b); });
         $devs.appendChild(b);
       });
     }
@@ -144,6 +153,48 @@
       b.setAttribute("aria-label", nm + ", " + st);
     });
   }
+  // Heating screen: now / target, colder / warmer, presets (same as the Home app's thermostat)
+  var $heat = document.getElementById("heat"), heatId = null, pendT = null, hTimer = null;
+  function heatAttrs(){ var d = devList.filter(function(x){ return x.entity_id === heatId; })[0]; return (d && d.attrs) || {}; }
+  function renderHeat(){
+    var a = heatAttrs(), target = pendT !== null ? pendT : a.temperature, presets = a.preset_modes || [];
+    document.getElementById("hNow").textContent = deg(a.current_temperature);
+    document.getElementById("hSet").textContent = deg(target);
+    document.getElementById("hTitle").textContent = "Heating" + (a.hvac_action === "heating" ? " · on" : "");
+    var $p = document.getElementById("hPresets");
+    if ($p.dataset.key !== presets.join(",")) {
+      $p.dataset.key = presets.join(","); $p.innerHTML = "";
+      presets.forEach(function(pm){
+        var b = document.createElement("button"); b.dataset.p = pm;
+        b.textContent = pm.charAt(0).toUpperCase() + pm.slice(1);
+        b.addEventListener("click", function(){ setPreset(pm, b); });
+        $p.appendChild(b);
+      });
+    }
+    [].forEach.call($p.querySelectorAll("button"), function(b){ b.classList.toggle("cur", a.preset_mode === b.dataset.p); });
+  }
+  function openHeat(id){ heatId = id; pendT = null; stop(); renderHeat(); $heat.hidden = false;
+    var w = $heat.querySelector('.hadj[data-d="1"]'); if (w) w.focus(); }
+  function closeHeat(){ $heat.hidden = true; heatId = null; var b = $devs.querySelector(".dev.ro"); if (b) b.focus(); if (!paused) start(); }
+  function heatAdjust(d){
+    var a = heatAttrs(), step = a.target_temp_step || 0.5, t = pendT !== null ? pendT : (a.temperature || 20);
+    t = Math.max(a.min_temp || 5, Math.min(a.max_temp || 35, Math.round((t + d * step) / step) * step));
+    pendT = t; renderHeat(); clearTimeout(hTimer);
+    var id = heatId;
+    hTimer = setTimeout(function(){   // send once you stop pressing
+      ha.service("climate", "set_temperature", { entity_id: id, temperature: t }).then(function(){
+        a.temperature = t; if (pendT === t) pendT = null; renderHeat(); })
+        .catch(function(){ pendT = null; renderHeat(); document.getElementById("hTitle").textContent = "Heating · failed"; });
+    }, 1200);
+  }
+  function setPreset(pm, b){
+    b.style.opacity = ".55";
+    ha.service("climate", "set_preset_mode", { entity_id: heatId, preset_mode: pm }).then(function(){
+      b.style.opacity = ""; heatAttrs().preset_mode = pm; renderHeat(); })
+      .catch(function(){ b.style.opacity = ""; document.getElementById("hTitle").textContent = "Heating · failed"; });
+  }
+  [].forEach.call($heat.querySelectorAll(".hadj"), function(b){ b.addEventListener("click", function(){ heatAdjust(+b.dataset.d); }); });
+  document.getElementById("hClose").addEventListener("click", closeHeat);
   function toggleDev(b){
     var id = b.dataset.id, want = b.classList.contains("on") ? "off" : "on";
     b.classList.add("busy"); devBusy[id] = Date.now() + 4000;
