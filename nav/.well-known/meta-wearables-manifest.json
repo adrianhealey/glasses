@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "Navigate",
+  "description": "Walking directions from Google Maps",
+  "appearance": {
+    "theme_color": "#4285F4",
+    "icon": {
+      "src": "../../icons/nav-mono-512.png",
+      "type": "monochrome"
+    }
+  }
+}
