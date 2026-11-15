@@ -74,7 +74,7 @@
   <div id="mapwrap"><div id="map"></div></div>
   <div id="foot">
     <div id="left"></div>
-    <button id="mapBtn" aria-label="Show or hide the map">Map</button>
+    <button id="mapBtn" aria-label="Change the map: street, satellite or none">Map</button>
     <button id="endBtn" aria-label="End navigation">End</button>
   </div>
 </div>
@@ -327,9 +327,17 @@
     { elementType: "labels.text.stroke", stylers: [{ color: "#000000" }] }, { featureType: "road", elementType: "geometry", stylers: [{ color: "#2b2b2b" }] },
     { featureType: "water", elementType: "geometry", stylers: [{ color: "#06202c" }] }, { featureType: "poi", stylers: [{ visibility: "off" }] },
     { featureType: "transit", stylers: [{ visibility: "off" }] }];
+  // map button cycles: street map -> satellite -> no map -> street map
   function mapOn() { return load(MAPPREF) !== "off"; }
-  function applyMapPref() { $("mapwrap").hidden = !mapOn(); $("mapBtn").textContent = mapOn() ? "Hide map" : "Map"; if (mapOn()) loadMaps(); }
-  $("mapBtn").addEventListener("click", function () { store(MAPPREF, mapOn() ? "off" : "on"); applyMapPref(); drawRoute(); });
+  function isSat() { return load(MAPPREF) === "sat"; }
+  function mapType() { return isSat() ? "hybrid" : "roadmap"; }   // hybrid = satellite photo with road names
+  function applyMapPref() {
+    $("mapwrap").hidden = !mapOn();
+    $("mapBtn").textContent = !mapOn() ? "Map" : (isSat() ? "Hide map" : "Satellite");
+    if (map) map.setMapTypeId(mapType());
+    if (mapOn()) loadMaps();
+  }
+  $("mapBtn").addEventListener("click", function () { store(MAPPREF, !mapOn() ? "on" : (isSat() ? "off" : "sat")); applyMapPref(); drawRoute(); });
   function loadMaps() {
     if (window.google && google.maps) { initMap(); return; }
     if (mapsLoading) return; mapsLoading = true;
@@ -342,7 +350,7 @@
   function initMap() {
     if (map || !window.google || !google.maps || !google.maps.Map) return;
     map = new google.maps.Map($("map"), { center: pos || { lat: 53.45, lng: -2.73 }, zoom: 17, disableDefaultUI: true, keyboardShortcuts: false,
-      gestureHandling: "none", clickableIcons: false, styles: DARK, backgroundColor: "#000000" });
+      gestureHandling: "none", clickableIcons: false, styles: DARK, backgroundColor: "#000000", mapTypeId: mapType(), tilt: 0 });
   }
   function drawRoute() {
     if (!map || !route || !mapOn()) return;
