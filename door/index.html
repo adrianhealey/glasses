@@ -111,10 +111,11 @@
   // Switches shown under each camera:
   //  "door"  = the light/switch carrying the Glasses Door label (porch light)
   //  "Living Room" = the Living Room devices from the Home app (Glasses label)
-  var DEVS = { "camera.ades_security_utility": "door", "camera.ades_security_connor_s_room": "Living Room" };
+  var DEVS = { "camera.ades_security_utility": "door", "camera.ades_security_connor_s_room": "Living Room", "camera.ades_security_all_cameras": "all" };
   // devices the Home app puts in the Living Room although their Home Assistant area differs (keep in step with home/index.html ROOMS)
   var LIVING = ["switch.media_wall", "input_boolean.fire", "switch.blue_lamp", "climate.lounge_lounge",
-    "light.kitchen_island_leds", "input_boolean.cooker_hood_light", "input_boolean.alexa_trigger"];   // + Kitchen
+    "light.kitchen_island_leds", "input_boolean.cooker_hood_light", "input_boolean.alexa_trigger"];
+  var ALLDEVS = LIVING.concat(["switch.sonoff_100180ad87"]);   // + Kitchen
   var DNAMES = { "climate.lounge_lounge": "Heating", "switch.sonoff_100180ad87": "Porch light", "input_boolean.alexa_trigger": "Coffee",
     "input_boolean.cooker_hood_light": "Hood light", "light.kitchen_island_leds": "Island LEDs" };
   var $devs = document.getElementById("devs"), devList = [], devBusy = {};
@@ -217,7 +218,7 @@
     if (!mode) { showDevs([]); return; }
     ha.entities("glasses").then(function(list){
       if (DEVS[CAMERA] !== mode) return;   // camera changed meanwhile
-      showDevs(list.filter(function(e){ return LIVING.indexOf(e.entity_id) >= 0 || (e.area === mode); })
+      showDevs(list.filter(function(e){ return (mode === "all") ? (ALLDEVS.indexOf(e.entity_id) >= 0 || e.area === "Living Room") : (LIVING.indexOf(e.entity_id) >= 0 || (e.area === mode)); })
         .sort(function(a, b){ return (DNAMES[a.entity_id] || dclean(a.name)).localeCompare(DNAMES[b.entity_id] || dclean(b.name)); }));
     }, function(){});
   }
