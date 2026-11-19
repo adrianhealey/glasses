@@ -33,21 +33,36 @@
   .place .n{font-size:23px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .place .a{font-size:17px;color:#8a8a8a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 
-  /* ---- navigating ---- */
-  #nav{flex:1;display:flex;flex-direction:column;min-height:0}
-  #turn{display:flex;align-items:center;gap:16px;padding:6px 16px 4px}
-  #arrow{flex:none;width:118px;height:118px;color:#5ad1ff}
+  /* ---- navigating (3D driving view) ---- */
+  #nav{flex:1;position:relative;min-height:0;overflow:hidden}
+  #mapwrap{position:absolute;inset:0;overflow:hidden;background:#0b0b0b;perspective:760px}
+  #map{position:absolute;left:-40%;top:-45%;width:180%;height:200%;transform-origin:50% 56%;transform:rotateX(0deg) rotate(0deg);transition:transform .45s ease-out;background:#0b0b0b}
+  #car{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);pointer-events:none;z-index:4}
+  #car::before{content:"";position:absolute;left:-20px;top:-18px;border-left:20px solid transparent;border-right:20px solid transparent;border-bottom:42px solid #2d7dff;filter:drop-shadow(0 2px 4px rgba(0,0,0,.7))}
+  #car::after{content:"";position:absolute;left:-9px;top:-1px;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:22px solid #9fc6ff}
+  #banner{position:absolute;left:8px;right:8px;top:8px;z-index:5;display:flex;align-items:center;gap:12px;background:#1f7a43;border-radius:14px;padding:8px 14px;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+  #arrow{flex:none;width:64px;height:64px;color:#fff}
   #arrow svg{width:100%;height:100%;transition:transform .3s}
-  #dist{font-size:58px;font-weight:700;line-height:1}
-  #dist small{font-size:28px;font-weight:600;color:#8a8a8a;margin-left:4px}
-  #instr{font-size:24px;line-height:1.25;padding:2px 16px 6px;max-height:3.9em;overflow:hidden}
-  #then{font-size:18px;color:#8a8a8a;padding:0 16px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #mapwrap{flex:1;min-height:0;margin:0 12px;border-radius:14px;overflow:hidden;position:relative;background:#0b0b0b}
-  #map{position:absolute;inset:0}
-  #foot{display:flex;align-items:center;gap:8px;padding:8px 12px 10px}
-  #left{flex:1;font-size:20px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #binfo{min-width:0;flex:1}
+  #dist{font-size:42px;font-weight:800;line-height:1}
+  #dist small{font-size:20px;font-weight:600;color:#cfe8da;margin-left:4px}
+  #instr{font-size:21px;line-height:1.2;max-height:2.5em;overflow:hidden;color:#fff;margin-top:3px}
+  #then{position:absolute;right:8px;top:94px;z-index:5;max-width:64%;font-size:16px;color:#e4ebee;background:rgba(18,18,18,.85);border-radius:11px;padding:6px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #then:empty{display:none}
+  #then b{color:#5ad1ff}
+  #foot{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;align-items:center;gap:8px;padding:10px 12px 10px;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0))}
+  #left{flex:1;font-size:19px;color:#eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #left b{color:#fff}
-  #foot button{font-size:19px;padding:8px 12px}
+  #foot button{font-size:18px;padding:8px 12px;background:rgba(20,20,20,.92)}
+  #parkBtn.saved{color:#5aa0ff;border-color:#2d7dff}
+  #modeseg{display:flex;gap:8px}
+  .seg{flex:1;font-size:21px;padding:10px;background:#141414;color:#9a9a9a;border:3px solid #333;border-radius:14px}
+  .seg.on{background:#143a2a;color:#fff;border-color:#2d7dff}
+  #carRow{display:flex;gap:8px}
+  #carRow .carbtn{flex:1;text-align:left;padding:10px 14px;background:#10243a;border:3px solid #1f4e7a;border-radius:14px}
+  #carRow .carbtn .n{font-size:22px;font-weight:700;color:#8fc0ff}
+  #carRow .carbtn .a{font-size:15px;color:#9fb6cc;margin-top:2px}
+  #carForget{flex:none;width:52px;background:#141414;color:#ff6b6b;font-size:22px;border-radius:14px}
   #arrived{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:20px}
   #arrived .big{font-size:34px;font-weight:700;color:#5ad1ff}
   #arrived button{font-size:22px;padding:12px 24px}
@@ -63,17 +78,22 @@
 </div>
 
 <div id="pick" hidden>
+  <div id="modeseg" role="group" aria-label="Travel mode">
+    <button id="mDrive" class="seg">Drive</button>
+    <button id="mWalk" class="seg">Walk</button>
+  </div>
+  <div id="carRow" hidden></div>
   <input id="q" type="search" placeholder="Where to?" autocomplete="off" enterkeyhint="search" aria-label="Search for a place">
   <div id="list" role="list"></div>
 </div>
 
 <div id="nav" hidden>
-  <div id="turn"><div id="arrow" aria-hidden="true"></div><div id="dist" aria-live="polite">—</div></div>
-  <div id="instr">Finding where you are…</div>
+  <div id="mapwrap"><div id="map"></div><div id="car" aria-hidden="true"></div></div>
+  <div id="banner"><div id="arrow" aria-hidden="true"></div><div id="binfo"><div id="dist" aria-live="polite">&mdash;</div><div id="instr">Finding where you are&hellip;</div></div></div>
   <div id="then"></div>
-  <div id="mapwrap"><div id="map"></div></div>
   <div id="foot">
     <div id="left"></div>
+    <button id="parkBtn" aria-label="Save where I parked">Park</button>
     <button id="mapBtn" aria-label="Change the map: street, satellite or none">Map</button>
     <button id="endBtn" aria-label="End navigation">End</button>
   </div>
@@ -90,7 +110,7 @@
 (function () {
   "use strict";
   // ---------- settings ----------
-  var KEY_STORE = "glasses_gmaps_key", RECENT = "glasses_nav_recent", ACTIVE = "glasses_nav_active", MAPPREF = "glasses_nav_map";
+  var KEY_STORE = "glasses_gmaps_key", RECENT = "glasses_nav_recent", ACTIVE = "glasses_nav_active", MAPPREF = "glasses_nav_map", MODEPREF = "glasses_nav_mode", PARK = "glasses_nav_park";
   var ARRIVE_M = 20;        // within this of the destination = arrived
   var STEP_DONE_M = 12;     // within this of the end of a step = move on to the next
   var OFF_ROUTE_M = 40;     // further than this from the route (3 fixes running) = re-plan
@@ -172,6 +192,10 @@
     if (!navigator.geolocation) { status("No location", true); $("instr").textContent = "These glasses aren't sharing a location with this app."; return; }
     watchId = navigator.geolocation.watchPosition(function (p) {
       pos = { lat: p.coords.latitude, lng: p.coords.longitude }; acc = p.coords.accuracy;
+      var hd = p.coords.heading; var sp = p.coords.speed;
+      if (hd != null && !isNaN(hd) && sp != null && sp > 0.6) heading = hd;
+      else if (lastHdPos && dist(lastHdPos, pos) > 4) heading = bearing(lastHdPos, pos);
+      lastHdPos = pos;
       if ($("status").textContent === "No location") status("");
       var cb = pending; pending = null; if (cb) cb();
       update();
@@ -193,6 +217,7 @@
     return b;
   }
   function showRecent() {
+    reflectMode(); showCarRow();
     var l = $("list"); l.innerHTML = "";
     if (!recent.length) { var d = document.createElement("div"); d.className = "msg"; d.textContent = "Type a place, postcode or address."; l.appendChild(d); return; }
     var h = document.createElement("h2"); h.textContent = "Recent"; l.appendChild(h);
@@ -230,6 +255,35 @@
     return "Couldn't reach Google Maps. Check the phone has signal. (" + s + ")";
   }
 
+  // ---------- travel mode, parking, camera ----------
+  var TILT = 55, heading = 0, lastHdPos = null;
+  function mode() { return load(MODEPREF) === "DRIVE" ? "DRIVE" : "WALK"; }
+  function setMode(mo) { store(MODEPREF, mo === "DRIVE" ? "DRIVE" : "WALK"); reflectMode(); }
+  function reflectMode() {
+    var d = mode() === "DRIVE";
+    if ($("mDrive")) $("mDrive").className = "seg" + (d ? " on" : "");
+    if ($("mWalk")) $("mWalk").className = "seg" + (d ? "" : " on");
+  }
+  function navZoom() { return mode() === "DRIVE" ? 17 : 18; }
+  function bearing(a, b) {
+    var y = Math.sin(rad(b.lng - a.lng)) * Math.cos(rad(b.lat));
+    var x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lng - a.lng));
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+  function parkPlace() { var p = load(PARK, true); return p ? { name: "Parked car", addr: p.addr || "Saved location", lat: p.lat, lng: p.lng, toCar: true } : null; }
+  function savePark() { if (!pos) { status("No location yet", true); return; } store(PARK, { lat: pos.lat, lng: pos.lng, addr: "Parked " + clock(new Date()), ts: Date.now() }); reflectPark(); status("Parked spot saved"); }
+  function forgetPark() { store(PARK, null); reflectPark(); if (!$("pick").hidden) showRecent(); }
+  function walkToCar() { var c = parkPlace(); if (c) go(c); }
+  function reflectPark() { if ($("parkBtn")) $("parkBtn").className = load(PARK) ? "saved" : ""; }
+  function showCarRow() {
+    var row = $("carRow"); if (!row) return; row.innerHTML = ""; var c = parkPlace();
+    if (!c) { row.hidden = true; return; } row.hidden = false;
+    var b = document.createElement("button"); b.className = "carbtn";
+    b.innerHTML = '<div class="n">\uD83C\uDD7F\uFE0F Walk to car</div><div class="a"></div>';
+    b.querySelector(".a").textContent = c.addr; b.addEventListener("click", walkToCar); row.appendChild(b);
+    var x = document.createElement("button"); x.id = "carForget"; x.textContent = "\u2715"; x.setAttribute("aria-label", "Forget parked car"); x.addEventListener("click", forgetPark); row.appendChild(x);
+  }
+
   // ---------- navigating ----------
   var dest = null, route = null, stepI = 0, offCount = 0, lastPlan = 0, planning = false;
   function go(p) {
@@ -243,11 +297,12 @@
   }
   function plan() {
     if (!dest || planning || !pos) return;
-    planning = true; lastPlan = Date.now(); status("Planning…");
+    planning = true; lastPlan = Date.now();
+    var navMode = (dest && dest.toCar) ? "WALK" : mode(); status("Planning…");
     var destination = dest.placeId ? { placeId: dest.placeId } : (dest.lat != null ? { location: { latLng: { latitude: dest.lat, longitude: dest.lng } } } : { address: dest.name });
     gpost("https://routes.googleapis.com/directions/v2:computeRoutes", {
       origin: { location: { latLng: { latitude: pos.lat, longitude: pos.lng } } },
-      destination: destination, travelMode: "WALK", languageCode: "en-GB", units: "METRIC"
+      destination: destination, travelMode: navMode, routingPreference: (navMode === "DRIVE" ? "TRAFFIC_AWARE" : undefined), languageCode: "en-GB", units: "METRIC"
     }, "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration,routes.legs.steps.startLocation,routes.legs.steps.endLocation,routes.legs.steps.navigationInstruction,routes.legs.steps.polyline.encodedPolyline,routes.legs.endLocation")
     .then(function (j) {
       planning = false;
@@ -319,6 +374,9 @@
   }
   function toPick() { stopNav(true); $("title").textContent = "Navigate"; status(""); show("pick"); showRecent(); $("q").value = ""; $("q").focus(); startGps(); }
   $("endBtn").addEventListener("click", toPick);
+  $("parkBtn").addEventListener("click", savePark);
+  $("mDrive").addEventListener("click", function () { setMode("DRIVE"); });
+  $("mWalk").addEventListener("click", function () { setMode("WALK"); });
   $("doneBtn").addEventListener("click", toPick);
 
   // ---------- small map (optional) ----------
@@ -349,7 +407,7 @@
   }
   function initMap() {
     if (map || !window.google || !google.maps || !google.maps.Map) return;
-    map = new google.maps.Map($("map"), { center: pos || { lat: 53.45, lng: -2.73 }, zoom: 17, disableDefaultUI: true, keyboardShortcuts: false,
+    map = new google.maps.Map($("map"), { center: pos || { lat: 53.45, lng: -2.73 }, zoom: navZoom(), disableDefaultUI: true, keyboardShortcuts: false,
       gestureHandling: "none", clickableIcons: false, styles: DARK, backgroundColor: "#000000", mapTypeId: mapType(), tilt: 0 });
   }
   function drawRoute() {
@@ -360,9 +418,10 @@
   }
   function moveMe() {
     if (!map || !pos || !mapOn()) return;
-    if (!me) me = new google.maps.Marker({ map: map, position: pos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#ffffff", fillOpacity: 1, strokeColor: "#5ad1ff", strokeWeight: 3 } });
-    else me.setPosition(pos);
+    map.setZoom(navZoom());
     map.panTo(pos);
+    var el = $("map");
+    if (el) el.style.transform = "rotateX(" + TILT + "deg) rotate(" + (-heading) + "deg)";
   }
 
   // ---------- keep the display awake while navigating ----------
@@ -381,6 +440,7 @@
   });
 
   // ---------- start ----------
+  reflectMode(); reflectPark();
   if (!KEY) { show("setup"); return; }
   var active = load(ACTIVE, true);
   if (linkTo) { go({ name: decodeURIComponent(linkTo[1]).replace(/\+/g, " "), addr: "" }); }
