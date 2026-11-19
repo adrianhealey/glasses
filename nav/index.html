@@ -36,7 +36,7 @@
   /* ---- navigating (3D driving view) ---- */
   #nav{flex:1;position:relative;min-height:0;overflow:hidden}
   #mapwrap{position:absolute;inset:0;overflow:hidden;background:#0b0b0b;perspective:760px}
-  #map{position:absolute;left:-40%;top:-45%;width:180%;height:200%;transform-origin:50% 56%;transform:rotateX(0deg) rotate(0deg);transition:transform .45s ease-out;background:#0b0b0b}
+  #map{position:absolute;left:-40%;top:-45%;width:180%;height:200%;transform-origin:50% 56%;transform:rotateX(0deg) rotate(0deg);transition:transform .25s ease-out;background:#0b0b0b}
   #car{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);pointer-events:none;z-index:4}
   #car::before{content:"";position:absolute;left:-20px;top:-18px;border-left:20px solid transparent;border-right:20px solid transparent;border-bottom:42px solid #2d7dff;filter:drop-shadow(0 2px 4px rgba(0,0,0,.7))}
   #car::after{content:"";position:absolute;left:-9px;top:-1px;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:22px solid #9fc6ff}
@@ -265,6 +265,44 @@
     if ($("mWalk")) $("mWalk").className = "seg" + (d ? "" : " on");
   }
   function navZoom() { return mode() === "DRIVE" ? 17 : 18; }
+  var compassHeading = null, compassAt = 0, orientOn = false, dispAngle = 0, headRAF = 0;
+  function curHeading() { return (compassHeading != null && Date.now() - compassAt < 3000) ? compassHeading : heading; }
+  function applyHeading() {
+    if (headRAF) return;
+    headRAF = requestAnimationFrame(function () {
+      headRAF = 0;
+      var el = $("map"); if (!el || !map || !mapOn()) return;
+      var target = -curHeading();
+      var diff = ((target - dispAngle + 540) % 360) - 180;
+      dispAngle += diff;
+      el.style.transform = "rotateX(" + TILT + "deg) rotate(" + dispAngle + "deg)";
+    });
+  }
+  function onOrient(e) {
+    var h = null;
+    if (e.webkitCompassHeading != null && !isNaN(e.webkitCompassHeading)) h = e.webkitCompassHeading;
+    else if (e.absolute && e.alpha != null) h = 360 - e.alpha;
+    if (h == null || isNaN(h)) return;
+    compassHeading = (h + 360) % 360; compassAt = Date.now();
+    applyHeading();
+  }
+  function addOrient() {
+    if (orientOn) return; orientOn = true;
+    window.addEventListener("deviceorientationabsolute", onOrient, true);
+    window.addEventListener("deviceorientation", onOrient, true);
+  }
+  function removeOrient() {
+    if (!orientOn) return; orientOn = false;
+    window.removeEventListener("deviceorientationabsolute", onOrient, true);
+    window.removeEventListener("deviceorientation", onOrient, true);
+  }
+  function startCompass() {
+    try {
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function") {
+        DeviceOrientationEvent.requestPermission().then(function (s) { if (s === "granted") addOrient(); }).catch(function () {});
+      } else addOrient();
+    } catch (e) {}
+  }
   function bearing(a, b) {
     var y = Math.sin(rad(b.lng - a.lng)) * Math.cos(rad(b.lat));
     var x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lng - a.lng));
@@ -292,7 +330,7 @@
     store(RECENT, recent);
     $("title").textContent = p.name; show("nav"); setArrow("DEPART");
     $("dist").innerHTML = "—"; $("instr").textContent = "Finding where you are…"; $("then").textContent = ""; $("left").textContent = "";
-    wake(true); applyMapPref();
+    wake(true); applyMapPref(); startCompass();
     firstFix(plan);
   }
   function plan() {
@@ -420,8 +458,7 @@
     if (!map || !pos || !mapOn()) return;
     map.setZoom(navZoom());
     map.panTo(pos);
-    var el = $("map");
-    if (el) el.style.transform = "rotateX(" + TILT + "deg) rotate(" + (-heading) + "deg)";
+    applyHeading();
   }
 
   // ---------- keep the display awake while navigating ----------
@@ -435,12 +472,13 @@
 
   // ---------- leaving / coming back (shared.js reloads after 45 s away; resume the trip) ----------
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { abortAll(); stopGps(); lock = null; }
-    else if (dest && !$("nav").hidden) { wake(true); startGps(); }
+    if (document.hidden) { abortAll(); stopGps(); removeOrient(); lock = null; }
+    else if (dest && !$("nav").hidden) { wake(true); startGps(); startCompass(); }
   });
 
   // ---------- start ----------
   reflectMode(); reflectPark();
+  document.addEventListener("click", startCompass, { once: true });
   if (!KEY) { show("setup"); return; }
   var active = load(ACTIVE, true);
   if (linkTo) { go({ name: decodeURIComponent(linkTo[1]).replace(/\+/g, " "), addr: "" }); }
