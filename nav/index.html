@@ -220,6 +220,10 @@
     b.addEventListener("click", function () { onClick(p); });
     return b;
   }
+  function focusPick() {
+    var f = $("list") ? $("list").querySelector(".place") : null;
+    if (f) f.focus(); else $("q").focus();
+  }
   function showRecent() {
     reflectMode(); showCarRow();
     var l = $("list"); l.innerHTML = "";
@@ -448,7 +452,7 @@
     route = null; abortAll(); stopGps(); removePed(); wake(false); pending = null;
     if (clearDest) { dest = null; store(ACTIVE, null); }
   }
-  function toPick() { stopNav(true); $("title").textContent = "Navigate"; status(""); show("pick"); showRecent(); $("q").value = ""; $("q").focus(); startGps(); }
+  function toPick() { stopNav(true); $("title").textContent = "Navigate"; status(""); show("pick"); showRecent(); $("q").value = ""; focusPick(); startGps(); }
   $("endBtn").addEventListener("click", toPick);
   $("parkBtn").addEventListener("click", savePark);
   $("mDrive").addEventListener("click", function () { setMode("DRIVE"); });
@@ -521,7 +525,7 @@
   var active = load(ACTIVE, true);
   if (linkTo) { go({ name: decodeURIComponent(linkTo[1]).replace(/\+/g, " "), addr: "" }); }
   else if (active) { go(active); }
-  else { show("pick"); showRecent(); startGps(); setTimeout(function () { $("q").focus(); }, 300); }
+  else { show("pick"); showRecent(); startGps(); setTimeout(focusPick, 300); }
 })();
 </script>
 </body>
