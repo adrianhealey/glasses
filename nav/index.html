@@ -79,13 +79,13 @@
 </div>
 
 <div id="pick" hidden>
+  <input id="q" type="search" placeholder="Where to?" autocomplete="off" enterkeyhint="search" aria-label="Search for a place">
+  <div id="list" role="list"></div>
+  <div id="carRow" hidden></div>
   <div id="modeseg" role="group" aria-label="Travel mode">
     <button id="mDrive" class="seg">Drive</button>
     <button id="mWalk" class="seg">Walk</button>
   </div>
-  <div id="carRow" hidden></div>
-  <input id="q" type="search" placeholder="Where to?" autocomplete="off" enterkeyhint="search" aria-label="Search for a place">
-  <div id="list" role="list"></div>
 </div>
 
 <div id="nav" hidden>
@@ -209,7 +209,7 @@
     }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
   }
   function stopGps() { if (watchId !== null) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} watchId = null; } }
-  function firstFix(cb) { startGps(); if (pos) cb(); else pending = cb; }
+  function firstFix(cb) { stopGps(); startGps(); if (pos) cb(); else pending = cb; }
 
   // ---------- choosing a destination ----------
   var recent = load(RECENT, true) || [];
