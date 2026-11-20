@@ -50,6 +50,7 @@
   #then{position:absolute;right:8px;top:94px;z-index:5;max-width:64%;font-size:16px;color:#e4ebee;background:rgba(18,18,18,.85);border-radius:11px;padding:6px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #then:empty{display:none}
   #then b{color:#5ad1ff}
+  #stepchip{position:absolute;left:8px;top:94px;z-index:5;font-size:17px;font-weight:600;color:#eaf2f6;background:rgba(18,18,18,.85);border-radius:11px;padding:6px 12px}
   #foot{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;align-items:center;gap:8px;padding:10px 12px 10px;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0))}
   #left{flex:1;font-size:19px;color:#eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #left b{color:#fff}
@@ -91,6 +92,7 @@
   <div id="mapwrap"><div id="map"></div><div id="car" aria-hidden="true"></div></div>
   <div id="banner"><div id="arrow" aria-hidden="true"></div><div id="binfo"><div id="dist" aria-live="polite">&mdash;</div><div id="instr">Finding where you are&hellip;</div></div></div>
   <div id="then"></div>
+  <div id="stepchip" hidden></div>
   <div id="foot">
     <div id="left"></div>
     <button id="parkBtn" aria-label="Save where I parked">Park</button>
@@ -110,7 +112,7 @@
 (function () {
   "use strict";
   // ---------- settings ----------
-  var KEY_STORE = "glasses_gmaps_key", RECENT = "glasses_nav_recent", ACTIVE = "glasses_nav_active", MAPPREF = "glasses_nav_map", MODEPREF = "glasses_nav_mode", PARK = "glasses_nav_park";
+  var KEY_STORE = "glasses_gmaps_key", RECENT = "glasses_nav_recent", ACTIVE = "glasses_nav_active", MAPPREF = "glasses_nav_map", MODEPREF = "glasses_nav_mode", PARK = "glasses_nav_park", STRIDEKEY = "glasses_nav_stride";
   var ARRIVE_M = 20;        // within this of the destination = arrived
   var STEP_DONE_M = 12;     // within this of the end of a step = move on to the next
   var OFF_ROUTE_M = 40;     // further than this from the route (3 fixes running) = re-plan
@@ -196,6 +198,8 @@
       if (hd != null && !isNaN(hd) && sp != null && sp > 0.6) heading = hd;
       else if (lastHdPos && dist(lastHdPos, pos) > 4) heading = bearing(lastHdPos, pos);
       lastHdPos = pos;
+      if (walking && lastStepPos) { tripGpsM += dist(lastStepPos, pos); if (!motionSeen) { steps = Math.round(tripGpsM / stride()); updateStepUI(); } else if (steps > 60 && tripGpsM > 40) { var st = tripGpsM / steps; if (st > 0.45 && st < 1.0) store(STRIDEKEY, st.toFixed(3)); } }
+      lastStepPos = pos;
       if ($("status").textContent === "No location") status("");
       var cb = pending; pending = null; if (cb) cb();
       update();
@@ -322,6 +326,39 @@
     var x = document.createElement("button"); x.id = "carForget"; x.textContent = "\u2715"; x.setAttribute("aria-label", "Forget parked car"); x.addEventListener("click", forgetPark); row.appendChild(x);
   }
 
+  // ---------- step tracker (walking) ----------
+  var steps = 0, walking = false, pedOn = false, motionSeen = false, gMag = null, peaked = false, lastStepAt = 0, tripGpsM = 0, lastStepPos = null;
+  var STEP_TH = 1.0, STEP_MIN_MS = 300;
+  function stride() { var s = parseFloat(load(STRIDEKEY)); return (s && s > 0.45 && s < 1.1) ? s : 0.72; }
+  function updateStepUI() {
+    var chip = $("stepchip"); if (!chip) return;
+    if (!walking) { chip.hidden = true; return; }
+    chip.hidden = false;
+    chip.textContent = "\uD83D\uDC63 " + steps.toLocaleString() + " steps";
+  }
+  function onStep() { steps++; updateStepUI(); }
+  function onMotion(e) {
+    var a = e.accelerationIncludingGravity || e.acceleration; if (!a || a.x == null) return;
+    motionSeen = true;
+    var mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+    gMag = (gMag == null) ? mag : gMag * 0.9 + mag * 0.1;
+    var dyn = mag - gMag;
+    var now = Date.now();
+    if (dyn > STEP_TH && !peaked && now - lastStepAt > STEP_MIN_MS) { peaked = true; lastStepAt = now; onStep(); }
+    else if (dyn < STEP_TH * 0.4) peaked = false;
+  }
+  function addMotion() { if (pedOn) return; pedOn = true; window.addEventListener("devicemotion", onMotion, true); }
+  function removePed() { if (!pedOn) return; pedOn = false; window.removeEventListener("devicemotion", onMotion, true); }
+  function startPed() {
+    if (!walking) return;
+    try {
+      if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === "function") {
+        DeviceMotionEvent.requestPermission().then(function (s) { if (s === "granted") addMotion(); }).catch(function () {});
+      } else addMotion();
+    } catch (e) {}
+  }
+  function resetSteps() { steps = 0; tripGpsM = 0; lastStepPos = null; motionSeen = false; gMag = null; peaked = false; updateStepUI(); }
+
   // ---------- navigating ----------
   var dest = null, route = null, stepI = 0, offCount = 0, lastPlan = 0, planning = false;
   function go(p) {
@@ -331,6 +368,7 @@
     $("title").textContent = p.name; show("nav"); setArrow("DEPART");
     $("dist").innerHTML = "—"; $("instr").textContent = "Finding where you are…"; $("then").textContent = ""; $("left").textContent = "";
     wake(true); applyMapPref(); startCompass();
+    walking = dest && dest.toCar ? true : mode() !== "DRIVE"; resetSteps(); startPed();
     firstFix(plan);
   }
   function plan() {
@@ -398,16 +436,16 @@
     var speed = route.total ? route.secs / route.total : 0.75;   // seconds per metre from Google's estimate
     var leftS = leftM * speed;
     var lf = fmtDist(leftM);
-    $("left").innerHTML = "<b>" + fmtMin(leftS) + "</b> · " + lf.n + " " + lf.u + " · arrive " + clock(new Date(Date.now() + leftS * 1000));
+    $("left").innerHTML = "<b>" + fmtMin(leftS) + "</b> · " + lf.n + " " + lf.u + (walking ? " · ~" + Math.round(leftM / stride()).toLocaleString() + " steps" : "") + " · arrive " + clock(new Date(Date.now() + leftS * 1000));
     moveMe();
   }
   function arrive() {
     stopNav(false);
-    $("arrName").textContent = dest ? dest.name : ""; show("arrived"); $("doneBtn").focus();
+    $("arrName").textContent = (dest ? dest.name : "") + (walking ? "  \u00b7  " + steps.toLocaleString() + " steps" : ""); show("arrived"); $("doneBtn").focus();
     store(ACTIVE, null);
   }
   function stopNav(clearDest) {
-    route = null; abortAll(); stopGps(); wake(false); pending = null;
+    route = null; abortAll(); stopGps(); removePed(); wake(false); pending = null;
     if (clearDest) { dest = null; store(ACTIVE, null); }
   }
   function toPick() { stopNav(true); $("title").textContent = "Navigate"; status(""); show("pick"); showRecent(); $("q").value = ""; $("q").focus(); startGps(); }
@@ -472,13 +510,13 @@
 
   // ---------- leaving / coming back (shared.js reloads after 45 s away; resume the trip) ----------
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { abortAll(); stopGps(); removeOrient(); lock = null; }
-    else if (dest && !$("nav").hidden) { wake(true); startGps(); startCompass(); }
+    if (document.hidden) { abortAll(); stopGps(); removeOrient(); removePed(); lock = null; }
+    else if (dest && !$("nav").hidden) { wake(true); startGps(); startCompass(); startPed(); }
   });
 
   // ---------- start ----------
   reflectMode(); reflectPark();
-  document.addEventListener("click", startCompass, { once: true });
+  document.addEventListener("click", function () { startCompass(); startPed(); }, { once: true });
   if (!KEY) { show("setup"); return; }
   var active = load(ACTIVE, true);
   if (linkTo) { go({ name: decodeURIComponent(linkTo[1]).replace(/\+/g, " "), addr: "" }); }
