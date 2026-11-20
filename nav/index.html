@@ -153,8 +153,13 @@
     return pts;
   }
   function fmtDist(mtr) {
-    if (mtr < 1000) { var r = mtr < 100 ? Math.round(mtr / 5) * 5 : Math.round(mtr / 10) * 10; return { n: String(r), u: "m" }; }
-    return { n: (mtr / 1000).toFixed(mtr < 10000 ? 1 : 0), u: "km" };
+    var mi = mtr / 1609.344;
+    if (mi < 0.1) {
+      var yd = mtr * 1.09361;
+      var r = yd < 100 ? Math.round(yd / 5) * 5 : Math.round(yd / 10) * 10;
+      return { n: String(r), u: "yd" };
+    }
+    return { n: mi.toFixed(mi < 10 ? 1 : 0), u: "mi" };
   }
   function fmtMin(sec) { var mn = Math.max(1, Math.round(sec / 60)); return mn < 60 ? mn + " min" : Math.floor(mn / 60) + " h " + (mn % 60) + " min"; }
   function clock(d) { return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); }
@@ -382,7 +387,7 @@
     var destination = dest.placeId ? { placeId: dest.placeId } : (dest.lat != null ? { location: { latLng: { latitude: dest.lat, longitude: dest.lng } } } : { address: dest.name });
     gpost("https://routes.googleapis.com/directions/v2:computeRoutes", {
       origin: { location: { latLng: { latitude: pos.lat, longitude: pos.lng } } },
-      destination: destination, travelMode: navMode, routingPreference: (navMode === "DRIVE" ? "TRAFFIC_AWARE" : undefined), languageCode: "en-GB", units: "METRIC"
+      destination: destination, travelMode: navMode, routingPreference: (navMode === "DRIVE" ? "TRAFFIC_AWARE" : undefined), languageCode: "en-GB", units: "IMPERIAL"
     }, "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration,routes.legs.steps.startLocation,routes.legs.steps.endLocation,routes.legs.steps.navigationInstruction,routes.legs.steps.polyline.encodedPolyline,routes.legs.endLocation")
     .then(function (j) {
       planning = false;
